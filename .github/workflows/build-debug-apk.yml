@@ -32,6 +32,9 @@ jobs:
       - name: Generate Android platform
         run: flutter create . --platforms=android
 
+      - name: Remove generated placeholder test
+        run: rm -rf test
+
       - name: Get dependencies
         run: flutter pub get
 
