@@ -458,10 +458,7 @@ class DriverOrders extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                fresh.length.toString() +
-                    ' baru • ' +
-                    active.length.toString() +
-                    ' aktif',
+                ${fresh.length} baru • ${active.length} aktif,
                 style: const TextStyle(color: Colors.black54),
               ),
             ),
@@ -824,9 +821,7 @@ class _HeroCard extends StatelessWidget {
         ? 'Sinkronisasi dihentikan sampai lokasi valid.'
         : snapshot == null
             ? 'Aktifkan Online untuk mulai memantau lokasi.'
-            : 'GPS aktif. Akurasi ' +
-                snapshot!.position.accuracy.toStringAsFixed(0) +
-                ' m.';
+            : 'GPS aktif. Akurasi ${snapshot!.position.accuracy.toStringAsFixed(0)} m.';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1438,5 +1433,5 @@ String _rupiah(num? value) {
     end = start;
   }
 
-  return 'Rp ' + groups.join('.');
+  return 'Rp ${groups.join('.')}';
 }
