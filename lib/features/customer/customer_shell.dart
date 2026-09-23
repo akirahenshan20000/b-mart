@@ -154,7 +154,7 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final order = Map<String, dynamic>.from(items[index] as Map);
             return Card(child: ListTile(leading: CircleAvatar(backgroundColor: Theme.of(context).colorScheme.primaryContainer, child: const Icon(Icons.receipt_long)), title: Text('${order['code']}'), subtitle: Text('${order['flow_state'] ?? order['status']} • Rp ${order['total']}'), trailing: const Icon(Icons.chevron_right)));
@@ -174,7 +174,7 @@ class CustomerProfile extends ConsumerWidget {
     return ListView(padding: const EdgeInsets.all(16), children: [
       CircleAvatar(radius: 40, child: Text('${(user['full_name'] ?? 'M').toString().substring(0, 1).toUpperCase()}')),
       const SizedBox(height: 14),
-      Center(child: Text('${user['full_name'] ?? '-'}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
+      Center(child: Text(user['full_name']?.toString() ?? '-', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
       Center(child: Text('${user['email'] ?? '-'}', style: const TextStyle(color: Colors.black54))),
       const SizedBox(height: 24),
       FilledButton.tonalIcon(onPressed: () => ref.read(authControllerProvider.notifier).logout(), icon: const Icon(Icons.logout), label: const Text('Keluar')),
