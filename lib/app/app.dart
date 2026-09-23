@@ -15,11 +15,12 @@ class BersolekMartApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'BersolekMart',
-      debugShowCheckedModeBanner: true,
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0E8B6D)),
-        scaffoldBackgroundColor: const Color(0xFFF6F8FA),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF16A56A)),
+        scaffoldBackgroundColor: const Color(0xFFF4F7F6),
+        appBarTheme: const AppBarTheme(centerTitle: false, surfaceTintColor: Colors.transparent),
         inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
         cardTheme: const CardThemeData(margin: EdgeInsets.zero),
       ),
