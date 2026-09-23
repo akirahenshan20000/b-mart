@@ -1,0 +1,4 @@
+GitHub Actions is the primary debug build path.
+Workflow: .github/workflows/build-debug-apk.yml
+Artifact: bersolekmart-debug-apk
+Output: build/app/outputs/flutter-apk/app-debug.apk
