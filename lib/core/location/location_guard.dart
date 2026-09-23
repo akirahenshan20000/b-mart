@@ -46,7 +46,7 @@ class LocationGuard {
 
     await stop();
 
-    const settings = AndroidSettings(
+    final settings = AndroidSettings(
       accuracy: LocationAccuracy.best,
       distanceFilter: 10,
       intervalDuration: Duration(seconds: 8),
@@ -68,7 +68,7 @@ class LocationGuard {
 
   Future<void> _handlePosition(Position position) async {
     final previous = _previous;
-    final calculatedSpeed = previous == null ? null : _speedKmh(previous!, position);
+    final calculatedSpeed = previous == null ? null : _speedKmh(previous, position);
     final anomaly = calculatedSpeed != null && calculatedSpeed > 180;
     final mocked = position.isMocked;
 
