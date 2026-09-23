@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/location/location_guard.dart';
-import '../../core/network/api_client.dart';
 
 class DriverShell extends ConsumerStatefulWidget {
   const DriverShell({super.key});
@@ -19,7 +18,6 @@ class _DriverShellState extends ConsumerState<DriverShell> {
   StreamSubscription<LocationSnapshot>? _locationSubscription;
   LocationSnapshot? _lastSnapshot;
   bool _running = false;
-  bool _serverHealthy = false;
 
   @override
   void initState() {
@@ -194,7 +192,7 @@ class DriverProfile extends ConsumerWidget {
   const DriverProfile({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(authControllerProvider).valueOrNull;
+    final session = ref.watch(authControllerProvider).asData?.value;
     final user = session?.user ?? const <String, dynamic>{};
     return ListView(padding: const EdgeInsets.all(16), children: [
       CircleAvatar(radius: 40, child: Text('${(user['full_name'] ?? 'D').toString().substring(0, 1).toUpperCase()}')),
