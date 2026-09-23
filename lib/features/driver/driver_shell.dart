@@ -31,7 +31,6 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       }
     }, onError: (Object error) {
       if (!mounted) return;
-      setState(() => _serverHealthy = false);
     });
   }
 
