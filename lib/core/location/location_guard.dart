@@ -85,7 +85,10 @@ class LocationGuard {
     );
     _controller.add(snapshot);
 
-    if (mocked) return;
+    if (mocked) {
+      _previous = null;
+      return;
+    }
 
     final payload = <String, dynamic>{
       'lat': position.latitude,
