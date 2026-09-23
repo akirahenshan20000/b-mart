@@ -20,11 +20,16 @@ class ApiClient {
 
   final SecureStore _store;
 
-  static const defaultBaseUrl = 'http://10.0.2.2/bersolekmart/api/v1';
+  static const defaultBaseUrl = 'https://bersolekmart.com/api/v1';
 
   Future<String> baseUrl() async {
     final saved = await _store.readBaseUrl();
-    return (saved == null || saved.trim().isEmpty) ? defaultBaseUrl : _normalize(saved);
+    if (saved == null || saved.trim().isEmpty) return defaultBaseUrl;
+    final normalized = _normalize(saved);
+    if (normalized.contains('10.0.2.2') || normalized.contains('localhost') || normalized.contains('127.0.0.1')) {
+      return defaultBaseUrl;
+    }
+    return normalized;
   }
 
   Future<void> saveBaseUrl(String value) => _store.saveBaseUrl(_normalize(value));
