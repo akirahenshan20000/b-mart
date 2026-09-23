@@ -177,7 +177,7 @@ class _DriverJobsState extends ConsumerState<DriverJobs> {
           if (snapshot.hasError) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('${snapshot.error}', textAlign: TextAlign.center)));
           final items = snapshot.data ?? const [];
           if (items.isEmpty) return ListView(children: const [SizedBox(height: 140), Center(child: Text('Belum ada job driver.'))]);
-          return ListView.separated(padding: const EdgeInsets.all(16), itemCount: items.length, separatorBuilder: (_, __) => const SizedBox(height: 10), itemBuilder: (context, index) {
+          return ListView.separated(padding: const EdgeInsets.all(16), itemCount: items.length, separatorBuilder: (_, _) => const SizedBox(height: 10), itemBuilder: (context, index) {
             final job = Map<String, dynamic>.from(items[index] as Map);
             return Card(child: ListTile(isThreeLine: true, leading: CircleAvatar(child: Text('${job['id']}')), title: Text('${job['order_code'] ?? 'Order'}'), subtitle: Text('${job['store_name'] ?? '-'}\nStatus: ${job['status'] ?? '-'}'), trailing: const Icon(Icons.chevron_right)));
           });
@@ -196,7 +196,7 @@ class DriverProfile extends ConsumerWidget {
     return ListView(padding: const EdgeInsets.all(16), children: [
       CircleAvatar(radius: 40, child: Text('${(user['full_name'] ?? 'D').toString().substring(0, 1).toUpperCase()}')),
       const SizedBox(height: 14),
-      Center(child: Text('${user['full_name'] ?? '-'}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
+      Center(child: Text(user['full_name']?.toString() ?? '-', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
       Center(child: Text('Driver', style: const TextStyle(color: Colors.black54))),
       const SizedBox(height: 24),
       FilledButton.tonalIcon(onPressed: () => ref.read(authControllerProvider.notifier).logout(), icon: const Icon(Icons.logout), label: const Text('Keluar')),
