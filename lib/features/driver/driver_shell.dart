@@ -194,7 +194,7 @@ class DriverProfile extends ConsumerWidget {
     final session = ref.watch(authControllerProvider).asData?.value;
     final user = session?.user ?? const <String, dynamic>{};
     return ListView(padding: const EdgeInsets.all(16), children: [
-      CircleAvatar(radius: 40, child: Text('${(user['full_name'] ?? 'D').toString().substring(0, 1).toUpperCase()}')),
+      CircleAvatar(radius: 40, child: Text((user['full_name'] ?? 'D').toString().substring(0, 1).toUpperCase())),
       const SizedBox(height: 14),
       Center(child: Text(user['full_name']?.toString() ?? '-', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
       Center(child: Text('Driver', style: const TextStyle(color: Colors.black54))),
