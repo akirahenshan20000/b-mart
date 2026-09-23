@@ -458,7 +458,7 @@ class DriverOrders extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                ${fresh.length} baru • ${active.length} aktif,
+                '${fresh.length} baru • ${active.length} aktif',
                 style: const TextStyle(color: Colors.black54),
               ),
             ),
