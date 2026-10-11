@@ -515,10 +515,12 @@ class DriverMapPage extends StatefulWidget {
     super.key,
     required this.snapshot,
     required this.job,
+    this.fullscreen = false,
   });
 
   final LocationSnapshot? snapshot;
   final DriverJobView? job;
+  final bool fullscreen;
 
   @override
   State<DriverMapPage> createState() => _DriverMapPageState();
@@ -541,6 +543,21 @@ class _DriverMapPageState extends State<DriverMapPage> {
     if (widget.job?.pickup != null) points.add(widget.job!.pickup!);
     if (widget.job?.dropoff != null) points.add(widget.job!.dropoff!);
     return points.length > 1 ? points : const [];
+  }
+
+  void _openFullscreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          backgroundColor: const Color(0xFF171113),
+          body: DriverMapPage(
+            snapshot: widget.snapshot,
+            job: widget.job,
+            fullscreen: true,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -566,7 +583,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   Polyline(
                     points: route,
                     strokeWidth: 5,
-                    color: const Color(0xFF16A56A),
+                    color: const Color(0xFFD20A2E),
+                    borderStrokeWidth: 2,
+                    borderColor: Colors.white,
                   ),
                 ],
               ),
@@ -578,7 +597,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   height: 50,
                   child: const _MapMarker(
                     icon: Icons.navigation_rounded,
-                    color: Color(0xFF147D58),
+                    color: Color(0xFF171113),
                   ),
                 ),
                 if (widget.job?.pickup != null)
@@ -588,7 +607,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.storefront_rounded,
-                      color: Color(0xFF147D58),
+                      color: Color(0xFFD20A2E),
                     ),
                   ),
                 if (widget.job?.dropoff != null)
@@ -598,7 +617,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.location_on_rounded,
-                      color: Color(0xFFD84040),
+                      color: Color(0xFF202020),
                     ),
                   ),
               ],
@@ -612,45 +631,148 @@ class _DriverMapPageState extends State<DriverMapPage> {
         ),
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
             child: Row(
               children: [
-                _MapChip(
-                  icon: Icons.my_location_rounded,
-                  label: 'Lokasi saya',
-                ),
-                const Spacer(),
-                Material(
-                  color: Colors.white,
-                  elevation: 6,
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => _mapController.move(_driverPoint, 16),
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(Icons.gps_fixed_rounded),
-                    ),
+                if (widget.fullscreen)
+                  _MapActionButton(
+                    icon: Icons.arrow_back_rounded,
+                    tooltip: 'Kembali ke peta order',
+                    onPressed: () => Navigator.of(context).pop(),
+                  )
+                else
+                  const _MapChip(
+                    icon: Icons.my_location_rounded,
+                    label: 'Peta pengantaran',
                   ),
+                const Spacer(),
+                _MapActionButton(
+                  icon: Icons.gps_fixed_rounded,
+                  tooltip: 'Pusatkan lokasi saya',
+                  onPressed: () => _mapController.move(_driverPoint, 16),
                 ),
+                if (!widget.fullscreen) ...[
+                  const SizedBox(width: 8),
+                  _MapActionButton(
+                    icon: Icons.fullscreen_rounded,
+                    tooltip: 'Buka peta layar penuh',
+                    onPressed: _openFullscreen,
+                  ),
+                ],
               ],
             ),
           ),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 92),
-              child: _MapSheet(
-                job: widget.job,
-                gpsReady: widget.snapshot != null,
+        if (!widget.fullscreen)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 92),
+                child: _MapSheet(
+                  job: widget.job,
+                  gpsReady: widget.snapshot != null,
+                ),
+              ),
+            ),
+          )
+        else if (widget.job != null)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: _FullscreenRouteCard(job: widget.job!),
               ),
             ),
           ),
-        ),
       ],
+    );
+  }
+}
+
+class _MapActionButton extends StatelessWidget {
+  const _MapActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF171113),
+      elevation: 7,
+      borderRadius: BorderRadius.circular(15),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        color: Colors.white,
+        icon: Icon(icon),
+      ),
+    );
+  }
+}
+
+class _FullscreenRouteCard extends StatelessWidget {
+  const _FullscreenRouteCard({required this.job});
+
+  final DriverJobView job;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF24191C), Color(0xFF111111)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0x55D20A2E)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x55000000), blurRadius: 22, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.route_rounded, color: Color(0xFFFF405D)),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Rute pengantaran',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+              ),
+              Text(job.code, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(job.storeName, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          Text(job.pickupAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Divider(color: Color(0x44FFFFFF), height: 1),
+          ),
+          Text(job.customerName, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          Text(job.dropoffAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
     );
   }
 }
