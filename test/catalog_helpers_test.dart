@@ -10,6 +10,12 @@ void main() {
       expect(formatRupiah(null), 'Rp 0');
     });
 
+    test('handles empty or malformed API product responses without throwing', () {
+      expect(catalogProductsFromPayload({'ok': true, 'data': []}), isEmpty);
+      expect(catalogProductsFromPayload({'ok': true, 'data': null}), isEmpty);
+      expect(catalogProductsFromPayload(null), isEmpty);
+    });
+
     test('resolves root-relative production media paths', () {
       expect(
         resolveMediaUrl('/uploads/products/item.jpg', 'https://bersolekmart.com/api/v1'),
