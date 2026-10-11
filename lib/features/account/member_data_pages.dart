@@ -12,11 +12,6 @@ const _areas = <String, List<String>>{
   'Wonoasih': ['Jrebeng Kidul', 'Kedung Asem', 'Kedung Galeng', 'Pakistaji', 'Sumber Taman', 'Wonoasih'],
 };
 
-Map<String, dynamic> _payloadData(dynamic payload) =>
-    payload is Map && payload['data'] is Map
-        ? Map<String, dynamic>.from(payload['data'] as Map)
-        : <String, dynamic>{};
-
 List<dynamic> _payloadList(dynamic payload) =>
     payload is Map && payload['data'] is List
         ? List<dynamic>.from(payload['data'] as List)
@@ -70,9 +65,11 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
       await ref.read(apiClientProvider).post('/addresses/delete/$id', <String, dynamic>{});
       if (mounted) setState(() => _future = _load());
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Alamat gagal dihapus. Coba lagi.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Alamat gagal dihapus. Coba lagi.')),
+        );
+      }
     }
   }
 
@@ -214,9 +211,11 @@ class _MemberAddressEditorPageState extends ConsumerState<MemberAddressEditorPag
         SnackBar(content: Text('Lokasi didapat. Akurasi ${position.accuracy.toStringAsFixed(0)} m.')),
       );
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error is StateError ? error.message : 'GPS gagal didapat. Periksa izin dan sinyal lokasi.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error is StateError ? error.message : 'GPS gagal didapat. Periksa izin dan sinyal lokasi.')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
@@ -274,7 +273,7 @@ class _MemberAddressEditorPageState extends ConsumerState<MemberAddressEditorPag
         TextField(controller: _address, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'Alamat lengkap', alignLabelWithHint: true)),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _district,
+          initialValue: _district,
           decoration: const InputDecoration(labelText: 'Kecamatan'),
           items: _areas.keys.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
           onChanged: (value) => setState(() {
@@ -284,7 +283,7 @@ class _MemberAddressEditorPageState extends ConsumerState<MemberAddressEditorPag
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _village,
+          initialValue: _village,
           decoration: const InputDecoration(labelText: 'Kelurahan'),
           items: (_areas[_district] ?? const <String>[]).map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
           onChanged: _district == null ? null : (value) => setState(() => _village = value),
