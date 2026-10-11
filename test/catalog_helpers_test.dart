@@ -1,10 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bersolek_mart_mobile/features/customer/customer_shell.dart';
+import 'package:bersolek_mart_mobile/features/driver/driver_shell.dart' as driver_ui;
 import 'package:bersolek_mart_mobile/features/auth/service_selection_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() {
+
+  test('formats structured customer and driver API values without JSON dumps', () {
+    final address = {
+      'id': '9',
+      'user_id': '109',
+      'label': 'Rumah',
+      'recipient_name': 'Dewi',
+      'phone': '08123456789',
+      'address_line': 'Jl. Mawar No. 4',
+    };
+    expect(readableApiValue(address), 'Jl. Mawar No. 4');
+    expect(
+      readableApiValue('{"label":"Rumah","address_line":"Jl. Mawar No. 4"}'),
+      'Jl. Mawar No. 4',
+    );
+    expect(driver_ui.readableDriverValue(address), 'Jl. Mawar No. 4');
+    expect(driver_ui.readableDriverValue({'status_label': 'Dalam perjalanan'}), 'Dalam perjalanan');
+    expect(readableApiValue(null), '-');
+  });
+
+
   group('catalog formatting and media URL helpers', () {
     test('formats Rupiah without decimal digits', () {
       expect(formatRupiah(15000), 'Rp 15.000');
