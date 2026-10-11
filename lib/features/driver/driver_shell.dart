@@ -1,9 +1,12 @@
-import 'dart:convert';
-
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -57,11 +60,28 @@ String readableDriverValue(dynamic value, {String fallback = '-'}) {
   return text;
 }
 
+/// Road leg that matches the existing PWA/PHP delivery state machine.
+/// null means the driver should not be navigating to a road destination at this stage.
+String? driverNavigationLegForStatus(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'assigned':
+    case 'accepted':
+    case 'picking_up':
+      return 'pickup';
+    case 'picked_up':
+    case 'delivering':
+      return 'dropoff';
+    default:
+      return null;
+  }
+}
+
 class DriverJobView {
   const DriverJobView({
     required this.id,
     required this.code,
     required this.status,
+    this.availableToAccept = false,
     required this.storeName,
     required this.customerName,
     required this.pickupAddress,
@@ -74,6 +94,7 @@ class DriverJobView {
   final String id;
   final String code;
   final String status;
+  final bool availableToAccept;
   final String storeName;
   final String customerName;
   final String pickupAddress;
@@ -84,24 +105,28 @@ class DriverJobView {
 
   bool get isCompleted {
     final value = status.toLowerCase();
-    return value.contains('complete') ||
-        value.contains('delivered') ||
-        value.contains('selesai');
+    return value == 'completed' || value.contains('selesai');
   }
 
   bool get isActive {
     final value = status.toLowerCase();
-    return value.contains('assigned') ||
-        value.contains('accepted') ||
-        value.contains('picking') ||
-        value.contains('picked') ||
-        value.contains('delivering') ||
-        value.contains('arrived') ||
+    if (isCompleted || isNew) return false;
+    return value == 'assigned' ||
+        value == 'accepted' ||
+        value == 'picking_up' ||
+        value == 'picked_up' ||
+        value == 'delivering' ||
+        value == 'arrived' ||
+        value == 'delivered' ||
         value.contains('aktif') ||
         value.contains('antar');
   }
 
-  bool get isNew => !isCompleted && !isActive;
+  bool get isNew {
+    final value = status.toLowerCase();
+    if (isCompleted) return false;
+    return value == 'available' || (value == 'assigned' && availableToAccept);
+  }
 
   String get statusLabel {
     switch (status.toLowerCase()) {
@@ -120,6 +145,7 @@ class DriverJobView {
       case 'arrived':
         return 'Sampai Tujuan';
       case 'delivered':
+        return 'Bukti Pengantaran';
       case 'completed':
         return 'Selesai';
       default:
@@ -131,6 +157,9 @@ class DriverJobView {
     id: id,
     code: code,
     status: nextStatus,
+    availableToAccept: nextStatus == 'available' || nextStatus == 'assigned'
+        ? availableToAccept
+        : false,
     storeName: storeName,
     customerName: customerName,
     pickupAddress: pickupAddress,
@@ -156,6 +185,8 @@ class _DriverShellState extends ConsumerState<DriverShell> {
   List<DriverJobView> _jobs = const [];
   DriverJobView? _selectedJob;
   bool _online = false;
+  bool _mapFullscreen = false;
+  Timer? _jobPoller;
   bool _loading = true;
   String? _error;
 
@@ -171,13 +202,18 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       }
     });
     _loadJobs();
+    _jobPoller = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && _online) _loadJobs(silent: true);
+    });
   }
 
-  Future<void> _loadJobs() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadJobs({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final payload = await ref.read(apiClientProvider).get('/driver/jobs');
       final raw = List<dynamic>.from(payload['data'] as List? ?? const []);
@@ -201,6 +237,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
           );
         }
         _loading = false;
+        _error = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -237,11 +274,25 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       return null;
     }
 
-    LatLng? point(List<String> latKeys, List<String> lngKeys) {
-      final lat = number(latKeys);
-      final lng = number(lngKeys);
+    LatLng? point(
+      List<String> latKeys,
+      List<String> lngKeys, {
+      bool useDropoffAddress = false,
+    }) {
+      double? parseAddressCoordinate(dynamic value) {
+        if (value is num) return value.toDouble();
+        return double.tryParse(value?.toString() ?? '');
+      }
+      final addressLat = useDropoffAddress
+          ? parseAddressCoordinate(dropoff['latitude'] ?? dropoff['lat'])
+          : null;
+      final addressLng = useDropoffAddress
+          ? parseAddressCoordinate(dropoff['longitude'] ?? dropoff['lng'] ?? dropoff['lon'])
+          : null;
+      final lat = number(latKeys) ?? addressLat;
+      final lng = number(lngKeys) ?? addressLng;
       if (lat == null || lng == null) return null;
-      if (lat.abs() > 90 || lng.abs() > 180) return null;
+      if (!lat.isFinite || !lng.isFinite || lat.abs() > 90 || lng.abs() > 180 || (lat == 0 && lng == 0)) return null;
       return LatLng(lat, lng);
     }
 
@@ -251,6 +302,8 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       id: (job['id'] ?? job['job_id'] ?? '').toString(),
       code: (job['order_code'] ?? job['code'] ?? job['order_number'] ?? 'Order').toString(),
       status: readableDriverValue(job['status'] ?? job['state'], fallback: 'Menunggu'),
+      availableToAccept: job['available_to_accept'] == true ||
+          job['available_to_accept']?.toString() == '1',
       storeName: readableDriverValue(job['store_name'] ?? job['merchant_name'], fallback: 'Merchant'),
       customerName: readableDriverValue(job['customer_name'] ?? job['buyer_name'] ?? dropoff['recipient_name'], fallback: 'Pelanggan'),
       pickupAddress: readableDriverValue(job['pickup_address'] ?? job['store_address'] ?? job['origin_address']),
@@ -263,6 +316,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       dropoff: point(
         const ['dropoff_lat', 'dropoff_latitude', 'destination_lat', 'customer_lat'],
         const ['dropoff_lng', 'dropoff_longitude', 'destination_lng', 'customer_lng'],
+        useDropoffAddress: true,
       ),
     );
   }
@@ -286,34 +340,73 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   Future<void> _setOnline(bool value) async {
     if (!value) {
+      // Stop device GPS immediately, then ask the backend to clear server availability.
       await _guard.stop();
       if (mounted) setState(() => _online = false);
+      try {
+        await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Anda offline. Status server sudah diperbarui.')),
+          );
+        }
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFF8A001D),
+            content: Text('GPS perangkat dihentikan, tetapi status server belum terkonfirmasi. Periksa koneksi dan coba lagi.'),
+          ),
+        );
+      }
       return;
     }
 
     try {
+      // Request the GPS permission/stream first; the driver is only shown Online after
+      // the existing web-equivalent availability rule is confirmed by the API.
       await _guard.start();
+      try {
+        await ref.read(apiClientProvider).post('/driver/status', {'status': 'available'});
+      } catch (_) {
+        await _guard.stop();
+        rethrow;
+      }
       if (!mounted) return;
       setState(() => _online = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Anda sekarang online. Lokasi mulai dipantau.')),
+        const SnackBar(content: Text('Anda online. Status server aktif dan GPS mulai dipantau.')),
       );
     } catch (error) {
+      await _guard.stop();
       if (!mounted) return;
+      setState(() => _online = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Status online gagal diperbarui. Periksa izin lokasi dan koneksi.')),
+        const SnackBar(
+          backgroundColor: Color(0xFF8A001D),
+          content: Text('Belum dapat Online. Periksa izin GPS dan koneksi server, lalu coba lagi.'),
+        ),
       );
     }
   }
 
   Future<void> _setOfflineForMock() async {
     await _guard.stop();
+    var serverConfirmed = false;
+    try {
+      await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+      serverConfirmed = true;
+    } catch (_) {
+      if (kDebugMode) debugPrint('[BersolekMart Driver] server offline status could not be confirmed after mock GPS.');
+    }
     if (!mounted) return;
     setState(() => _online = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: Color(0xFFD32F2F),
-        content: Text('Mock location terdeteksi. Anda otomatis offline.'),
+      SnackBar(
+        backgroundColor: const Color(0xFFD32F2F),
+        content: Text(serverConfirmed
+            ? 'Mock location terdeteksi. GPS dihentikan dan status server menjadi offline.'
+            : 'Mock location terdeteksi. GPS dihentikan; status server belum dapat dikonfirmasi.'),
       ),
     );
   }
@@ -337,7 +430,12 @@ class _DriverShellState extends ConsumerState<DriverShell> {
         onSelect: _openJobDetail,
         onRefresh: _loadJobs,
       ),
-      DriverMapPage(snapshot: _snapshot, job: _selectedJob),
+      DriverMapPage(
+        snapshot: _snapshot,
+        job: _selectedJob,
+        fullscreen: _mapFullscreen,
+        onFullscreenChanged: (value) => setState(() => _mapFullscreen = value),
+      ),
       DriverHistory(jobs: _jobs),
       DriverProfile(snapshot: _snapshot, onOpenMap: () => setState(() => _index = 2)),
     ];
@@ -345,9 +443,12 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: _mapFullscreen ? null : NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) => setState(() {
+          _mapFullscreen = false;
+          _index = value;
+        }),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -381,6 +482,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   @override
   void dispose() {
+    _jobPoller?.cancel();
     _locationSubscription?.cancel();
     _guard.dispose();
     super.dispose();
@@ -418,7 +520,7 @@ class DriverHome extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 52, 16, 110),
+        padding: const EdgeInsets.fromLTRB(14, 18, 14, 20),
         children: [
           Row(
             children: [
@@ -450,7 +552,7 @@ class DriverHome extends StatelessWidget {
               _OnlinePill(value: online, onChanged: onOnlineChanged),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _HeroCard(online: online, snapshot: snapshot),
           const SizedBox(height: 12),
           Row(
@@ -472,7 +574,7 @@ class DriverHome extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 17),
           Row(
             children: [
               const Expanded(
@@ -692,14 +794,14 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
   int get _stage {
     switch (_job.status.toLowerCase()) {
       case 'available': return 0;
-      case 'assigned':
+      case 'assigned': return _job.availableToAccept ? 0 : 1;
       case 'accepted': return 1;
       case 'picking_up':
       case 'picked_up': return 2;
       case 'delivering': return 3;
       case 'arrived':
-      case 'delivered':
-      case 'completed': return 4;
+      case 'delivered': return 4;
+      case 'completed': return 5;
       default: return 0;
     }
   }
@@ -744,7 +846,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     if (requestedStatus == null || jobId == null || jobId < 1) return;
 
     XFile? proof;
-    if (const ['arrived', 'delivered', 'completed'].contains(requestedStatus)) {
+    if (requestedStatus == 'arrived') {
       try {
         final source = await _chooseProofSource();
         if (source == null || !mounted) return;
@@ -799,6 +901,11 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Status order diperbarui oleh server: ${_job.statusLabel}.')),
       );
+      if (const ['picking_up', 'delivering'].contains(actualStatus.toLowerCase())) {
+        // Status has already been accepted by the API; now open the same in-app live map.
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+        if (mounted) widget.onOpenMap();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = error is ApiException
@@ -816,7 +923,6 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     final nextStatus = _nextStatus;
     final towardCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(_job.status.toLowerCase());
     final destinationLabel = towardCustomer ? 'Tujuan pelanggan' : 'Titik pickup merchant';
-    final destinationAddress = towardCustomer ? _job.dropoffAddress : _job.pickupAddress;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F4F5),
@@ -867,47 +973,49 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
                   _DriverDetailSection(
                     title: 'Proses pengantaran',
                     icon: Icons.route_outlined,
+                    child: _DriverProgressBar(
+                      current: _stage,
+                      status: _job.statusLabel,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _DriverDetailSection(
+                    title: 'Rute order',
+                    icon: Icons.location_on_outlined,
                     child: Column(
                       children: [
-                        _DriverProgressStep(label: 'Order tersedia', subtitle: 'Menunggu penugasan dari server', index: 0, current: _stage),
-                        _DriverProgressStep(label: 'Ditugaskan ke driver', subtitle: 'Order sudah diklaim atau ditugaskan', index: 1, current: _stage),
-                        _DriverProgressStep(label: 'Pickup merchant', subtitle: 'Menuju merchant dan mengambil pesanan', index: 2, current: _stage),
-                        _DriverProgressStep(label: 'Pengantaran', subtitle: 'Menuju alamat pelanggan', index: 3, current: _stage),
-                        _DriverProgressStep(label: 'Selesai', subtitle: 'Status akhir dikonfirmasi oleh server', index: 4, current: _stage, last: true),
+                        _DriverAddressRow(
+                          title: _job.storeName,
+                          address: _job.pickupAddress,
+                          icon: Icons.storefront_rounded,
+                          tint: const Color(0xFF147D58),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(20, 9, 0, 9),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Icon(Icons.more_vert_rounded, color: Color(0xFFB5A8AC), size: 20),
+                          ),
+                        ),
+                        _DriverAddressRow(
+                          title: _job.customerName,
+                          address: _job.dropoffAddress,
+                          icon: Icons.location_on_rounded,
+                          tint: const Color(0xFFD20A2E),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.navigation_outlined, color: Color(0xFFD20A2E), size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(
+                              'Tujuan berikutnya: $destinationLabel',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                            )),
+                            TextButton(onPressed: widget.onOpenMap, child: const Text('Lihat peta')),
+                          ],
+                        ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Titik pickup',
-                    icon: Icons.storefront_outlined,
-                    child: _DriverAddressRow(
-                      title: _job.storeName,
-                      address: _job.pickupAddress,
-                      icon: Icons.storefront_rounded,
-                      tint: const Color(0xFF147D58),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Alamat pelanggan',
-                    icon: Icons.location_on_outlined,
-                    child: _DriverAddressRow(
-                      title: _job.customerName,
-                      address: _job.dropoffAddress,
-                      icon: Icons.location_on_rounded,
-                      tint: const Color(0xFFD20A2E),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Tujuan navigasi berikutnya',
-                    icon: Icons.navigation_outlined,
-                    child: _DriverAddressRow(
-                      title: destinationLabel,
-                      address: destinationAddress,
-                      icon: Icons.near_me_rounded,
-                      tint: const Color(0xFFD20A2E),
                     ),
                   ),
                   if (_error != null) ...[
@@ -1026,55 +1134,82 @@ class _DriverAddressRow extends StatelessWidget {
   );
 }
 
-class _DriverProgressStep extends StatelessWidget {
-  const _DriverProgressStep({
-    required this.label,
-    required this.subtitle,
-    required this.index,
-    required this.current,
-    this.last = false,
-  });
-  final String label;
-  final String subtitle;
-  final int index;
+class _DriverProgressBar extends StatelessWidget {
+  const _DriverProgressBar({required this.current, required this.status});
   final int current;
-  final bool last;
+  final String status;
+
+  static const _labels = [
+    'Order',
+    'Terima',
+    'Pickup',
+    'Antar',
+    'Bukti',
+    'Selesai',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final done = index < current;
-    final active = index == current;
-    final color = done || active ? const Color(0xFF147D58) : const Color(0xFFD4CDCF);
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 15),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 26,
-            child: Column(children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(color: done ? color : Colors.white, shape: BoxShape.circle, border: Border.all(color: color, width: 1.5)),
-                child: Icon(done ? Icons.check_rounded : active ? Icons.radio_button_checked_rounded : Icons.circle_outlined,
-                  color: done ? Colors.white : color, size: 15),
+    final safeCurrent = current.clamp(0, _labels.length - 1).toInt();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List<Widget>.generate(_labels.length, (index) {
+            final complete = index < safeCurrent;
+            final active = index == safeCurrent;
+            final fill = complete || active
+                ? const Color(0xFFD20A2E)
+                : const Color(0xFFE8DFE1);
+            return Expanded(
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: complete ? const Color(0xFFD20A2E) : Colors.white,
+                      border: Border.all(color: fill, width: 1.5),
+                    ),
+                    child: Icon(
+                      complete ? Icons.check_rounded : active ? Icons.circle_rounded : Icons.circle_outlined,
+                      size: complete ? 14 : 10,
+                      color: complete ? Colors.white : fill,
+                    ),
+                  ),
+                  if (index < _labels.length - 1)
+                    Expanded(
+                      child: Container(
+                        height: 2,
+                        color: index < safeCurrent ? const Color(0xFFD20A2E) : const Color(0xFFE8DFE1),
+                      ),
+                    ),
+                ],
               ),
-              if (!last)
-                Container(width: 2, height: 26, color: index < current ? const Color(0xFF147D58) : const Color(0xFFE3DDDF)),
-            ]),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: TextStyle(fontWeight: FontWeight.w900, color: active ? const Color(0xFF147D58) : const Color(0xFF282124))),
-              const SizedBox(height: 3),
-              Text(subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12, height: 1.35)),
-            ]),
-          )),
-        ],
-      ),
+            );
+          }),
+        ),
+        const SizedBox(height: 12),
+        Text(status, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+        const SizedBox(height: 4),
+        Text(
+          'Tahap ${safeCurrent + 1} dari ${_labels.length} · Status terakhir dikonfirmasi backend.',
+          style: const TextStyle(color: Colors.black54, fontSize: 12, height: 1.35),
+        ),
+        const SizedBox(height: 7),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: _labels.map((label) => Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: label == _labels[safeCurrent] ? FontWeight.w900 : FontWeight.w500,
+              color: label == _labels[safeCurrent] ? const Color(0xFFD20A2E) : const Color(0xFF8A7D82),
+            ),
+          )).toList(),
+        ),
+      ],
     );
   }
 }
@@ -1085,11 +1220,13 @@ class DriverMapPage extends StatefulWidget {
     required this.snapshot,
     required this.job,
     this.fullscreen = false,
+    this.onFullscreenChanged,
   });
 
   final LocationSnapshot? snapshot;
   final DriverJobView? job;
   final bool fullscreen;
+  final ValueChanged<bool>? onFullscreenChanged;
 
   @override
   State<DriverMapPage> createState() => _DriverMapPageState();
@@ -1097,39 +1234,284 @@ class DriverMapPage extends StatefulWidget {
 
 class _DriverMapPageState extends State<DriverMapPage> {
   final MapController _mapController = MapController();
+  bool _mapReady = false;
+  bool _followGps = true;
+  double _cameraZoom = 15;
+  bool _routeLoading = false;
+  String? _routeError;
+  List<LatLng> _routePoints = const [];
+  double? _routeDistanceMeters;
+  double? _routeDurationSeconds;
+  LatLng? _lastRouteOrigin;
+  LatLng? _lastRouteDestination;
+  DateTime? _lastRouteRequestAt;
+  int _routeRequestGeneration = 0;
 
-  static const LatLng _fallback = LatLng(-7.7543, 113.2159);
-
-  LatLng get _driverPoint {
-    final position = widget.snapshot?.position;
-    return position == null
-        ? (widget.job?.pickup ?? widget.job?.dropoff ?? _fallback)
-        : LatLng(position.latitude, position.longitude);
+  LatLng? get _driverPoint {
+    final snapshot = widget.snapshot;
+    final position = snapshot?.position;
+    if (position != null && snapshot != null && !snapshot.mocked) {
+      return LatLng(position.latitude, position.longitude);
+    }
+    // Job coordinates are server-sourced. If neither GPS nor order coordinates
+    // exist, render a GPS-waiting state instead of inventing a city coordinate.
+    return widget.job?.pickup ?? widget.job?.dropoff;
   }
 
-  void _openFullscreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => Scaffold(
-          backgroundColor: const Color(0xFF171113),
-          body: DriverMapPage(
-            snapshot: widget.snapshot,
-            job: widget.job,
-            fullscreen: true,
-          ),
-        ),
-      ),
-    );
+  LatLng? get _activeDestination {
+    final job = widget.job;
+    if (job == null || job.isCompleted) return null;
+    switch (driverNavigationLegForStatus(job.status)) {
+      case 'pickup':
+        return job.pickup;
+      case 'dropoff':
+        return job.dropoff;
+      default:
+        // No route before assignment or after arrival/delivery/completion.
+        return null;
+    }
+  }
+
+  String get _destinationLabel =>
+      driverNavigationLegForStatus(widget.job?.status ?? '') == 'dropoff'
+          ? 'Pelanggan'
+          : 'Merchant';
+
+  @override
+  void initState() {
+    super.initState();
   }
 
   @override
+  void didUpdateWidget(covariant DriverMapPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldTarget = _destinationFor(oldWidget.job);
+    final newTarget = _activeDestination;
+    if (_driverPoint == null) {
+      _mapReady = false;
+      _routePoints = const [];
+      _routeDistanceMeters = null;
+      _routeDurationSeconds = null;
+      _routeLoading = false;
+      _routeError = 'Pilih order dengan koordinat, atau aktifkan GPS untuk menampilkan peta.';
+      return;
+    }
+    final targetChanged = oldTarget?.latitude != newTarget?.latitude ||
+        oldTarget?.longitude != newTarget?.longitude ||
+        oldWidget.job?.status != widget.job?.status ||
+        oldWidget.job?.id != widget.job?.id;
+
+    final oldPosition = oldWidget.snapshot?.position;
+    final newPosition = widget.snapshot?.position;
+    if (_mapReady && newPosition != null && !newPosition.isMocked) {
+      final changed = oldPosition == null ||
+          _distanceMeters(
+            LatLng(oldPosition.latitude, oldPosition.longitude),
+            LatLng(newPosition.latitude, newPosition.longitude),
+          ) >= 2;
+      if (changed && _followGps) {
+        _mapController.move(LatLng(newPosition.latitude, newPosition.longitude), _cameraZoom);
+      }
+      if (targetChanged || changed) _maybeLoadRoute(force: targetChanged);
+    } else if (targetChanged && _mapReady) {
+      _maybeLoadRoute(force: true);
+    }
+  }
+
+  LatLng? _destinationFor(DriverJobView? job) {
+    if (job == null || job.isCompleted) return null;
+    switch (driverNavigationLegForStatus(job.status)) {
+      case 'pickup':
+        return job.pickup;
+      case 'dropoff':
+        return job.dropoff;
+      default:
+        return null;
+    }
+  }
+
+  double _distanceMeters(LatLng a, LatLng b) {
+    const radius = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLng = (b.longitude - a.longitude) * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) *
+            math.sin(dLng / 2) * math.sin(dLng / 2);
+    return radius * 2 * math.atan2(math.sqrt(h), math.sqrt(math.max(0, 1 - h)));
+  }
+
+  Future<void> _maybeLoadRoute({bool force = false}) async {
+    if (!_mapReady) return;
+
+    final snapshot = widget.snapshot;
+    final position = snapshot?.position;
+    if (position == null || snapshot!.mocked) {
+      if (mounted) {
+        setState(() {
+          _routeLoading = false;
+          _routeError = _routePoints.isEmpty
+              ? 'Aktifkan GPS untuk menghitung rute dari posisi Anda.'
+              : 'GPS tidak valid; rute terakhir masih ditampilkan.';
+        });
+      }
+      return;
+    }
+
+    final origin = LatLng(position.latitude, position.longitude);
+    final destination = _activeDestination;
+    if (destination == null) {
+      if (mounted) {
+        final status = widget.job?.status.toLowerCase() ?? '';
+        final needsRoute = const ['assigned', 'accepted', 'picking_up', 'picked_up', 'delivering'].contains(status);
+        final pickupAddress = widget.job?.pickupAddress.trim() ?? '';
+        final dropoffAddress = widget.job?.dropoffAddress.trim() ?? '';
+        final addressAvailable = const ['assigned', 'accepted', 'picking_up'].contains(status)
+            ? pickupAddress.isNotEmpty && pickupAddress != '-'
+            : dropoffAddress.isNotEmpty && dropoffAddress != '-';
+        setState(() {
+          _routePoints = const [];
+          _routeDistanceMeters = null;
+          _routeDurationSeconds = null;
+          _routeLoading = false;
+          _routeError = widget.job == null
+              ? 'Pilih order untuk melihat rute jalan.'
+              : needsRoute && addressAvailable
+                  ? 'Alamat tujuan tersedia, tetapi koordinat tujuan belum dikirim oleh server.'
+                  : needsRoute
+                      ? 'Koordinat tujuan belum tersedia pada order ini.'
+                      : 'Rute jalan tidak aktif pada status order ini.';
+        });
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final destinationChanged = _lastRouteDestination == null ||
+        _distanceMeters(_lastRouteDestination!, destination) > 8;
+    final moved = _lastRouteOrigin == null ||
+        _distanceMeters(_lastRouteOrigin!, origin) >= 45;
+    final elapsed = _lastRouteRequestAt == null ||
+        now.difference(_lastRouteRequestAt!).inSeconds >= 15;
+    if (!force && !destinationChanged && !moved && !elapsed) return;
+    if (_routeLoading && !force) return;
+
+    final generation = ++_routeRequestGeneration;
+    _lastRouteOrigin = origin;
+    _lastRouteDestination = destination;
+    _lastRouteRequestAt = now;
+    setState(() {
+      _routeLoading = true;
+      _routeError = null;
+      if (destinationChanged) {
+        _routePoints = const [];
+        _routeDistanceMeters = null;
+        _routeDurationSeconds = null;
+      }
+    });
+
+    try {
+      final uri = Uri.https(
+        'router.project-osrm.org',
+        '/route/v1/driving/'
+            '${origin.longitude.toStringAsFixed(6)},${origin.latitude.toStringAsFixed(6)};'
+            '${destination.longitude.toStringAsFixed(6)},${destination.latitude.toStringAsFixed(6)}',
+        const {
+          'overview': 'full',
+          'geometries': 'geojson',
+          'steps': 'false',
+        },
+      );
+      final response = await http.get(
+        uri,
+        headers: const {'Accept': 'application/json', 'User-Agent': 'BersolekMart-Mobile/1.0'},
+      ).timeout(const Duration(seconds: 9));
+      if (response.statusCode != 200) {
+        throw FormatException('Routing service returned HTTP ${response.statusCode}.');
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['code'] != 'Ok' || decoded['routes'] is! List ||
+          (decoded['routes'] as List).isEmpty) {
+        throw const FormatException('Routing service did not return a road route.');
+      }
+      final route = Map<String, dynamic>.from((decoded['routes'] as List).first as Map);
+      final geometry = route['geometry'];
+      if (geometry is! Map || geometry['coordinates'] is! List) {
+        throw const FormatException('Road-route geometry is unavailable.');
+      }
+      final points = <LatLng>[];
+      for (final raw in geometry['coordinates'] as List) {
+        if (raw is List && raw.length >= 2) {
+          final longitude = double.tryParse(raw[0].toString());
+          final latitude = double.tryParse(raw[1].toString());
+          if (latitude != null && longitude != null &&
+              latitude.abs() <= 90 && longitude.abs() <= 180) {
+            points.add(LatLng(latitude, longitude));
+          }
+        }
+      }
+      if (points.length < 2) {
+        throw const FormatException('Road route contains insufficient geometry points.');
+      }
+      if (!mounted || generation != _routeRequestGeneration) return;
+      setState(() {
+        _routePoints = points;
+        _routeDistanceMeters = _asDouble(route['distance']);
+        _routeDurationSeconds = _asDouble(route['duration']);
+        _routeLoading = false;
+        _routeError = null;
+      });
+    } catch (error) {
+      if (!mounted || generation != _routeRequestGeneration) return;
+      setState(() {
+        _routeLoading = false;
+        _routeError = _routePoints.isEmpty
+            ? 'Rute jalan belum tersedia. Periksa koneksi atau koordinat order.'
+            : 'Rute terakhir masih ditampilkan; pembaruan rute gagal.';
+      });
+      if (kDebugMode) debugPrint('[BersolekMart Routing] ${error.runtimeType}: route refresh failed.');
+    }
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  void _centerOnDriver() {
+    final snapshot = widget.snapshot;
+    if (snapshot == null || snapshot.mocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS valid belum tersedia. Aktifkan status Online terlebih dahulu.')),
+      );
+      return;
+    }
+    setState(() => _followGps = true);
+    _cameraZoom = _cameraZoom < 15 ? 15 : _cameraZoom;
+    if (_mapReady) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
+    _maybeLoadRoute(force: true);
+  }
+
+  void _openFullscreen() => widget.onFullscreenChanged?.call(true);
+
+  void _closeFullscreen() => widget.onFullscreenChanged?.call(false);
+
+  @override
   Widget build(BuildContext context) {
+    final destination = _activeDestination;
+    final snapshot = widget.snapshot;
+    final hasValidGps = snapshot != null && !snapshot.mocked;
+    final initialCenter = _driverPoint;
+    if (initialCenter == null) _mapReady = false;
+
     return Stack(
       children: [
-        FlutterMap(
+        if (initialCenter != null)
+          FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _driverPoint,
+            initialCenter: initialCenter,
             initialZoom: 14,
             initialCameraFit: widget.job?.pickup != null && widget.job?.dropoff != null
                 ? CameraFit.bounds(
@@ -1137,22 +1519,59 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     padding: const EdgeInsets.fromLTRB(56, 110, 56, 310),
                   )
                 : null,
+            onMapReady: () {
+              _mapReady = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                if (hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
+                _maybeLoadRoute(force: true);
+              });
+            },
+            onPositionChanged: (camera, hasGesture) {
+              _cameraZoom = camera.zoom;
+              if (hasGesture && _followGps && mounted) {
+                setState(() => _followGps = false);
+              }
+            },
           ),
           children: [
             TileLayer(
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.bersolekmart.mobile',
             ),
+            if (_routePoints.length >= 2) ...[
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 9,
+                    color: Colors.white.withAlpha(220),
+                  ),
+                ],
+              ),
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 5,
+                    color: const Color(0xFFD20A2E),
+                  ),
+                ],
+              ),
+            ],
             MarkerLayer(
               markers: [
-                if (widget.snapshot?.position != null)
+                if (hasValidGps)
                   Marker(
-                    point: _driverPoint,
-                    width: 50,
-                    height: 50,
-                    child: const _MapMarker(
-                      icon: Icons.navigation_rounded,
-                      color: Color(0xFF171113),
+                    point: LatLng(snapshot.position.latitude, snapshot.position.longitude),
+                    width: 54,
+                    height: 54,
+                    child: Transform.rotate(
+                      angle: (snapshot.position.heading.isFinite ? snapshot.position.heading : 0) * math.pi / 180,
+                      child: const _MapMarker(
+                        icon: Icons.navigation_rounded,
+                        color: Color(0xFF171113),
+                      ),
                     ),
                   ),
                 if (widget.job?.pickup != null)
@@ -1162,7 +1581,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.storefront_rounded,
-                      color: Color(0xFFD20A2E),
+                      color: Color(0xFF147D58),
                     ),
                   ),
                 if (widget.job?.dropoff != null)
@@ -1172,18 +1591,50 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.location_on_rounded,
-                      color: Color(0xFF202020),
+                      color: Color(0xFFD20A2E),
                     ),
                   ),
               ],
             ),
             RichAttributionWidget(
-              attributions: [
-                TextSourceAttribution('OpenStreetMap contributors'),
-              ],
+              attributions: const [TextSourceAttribution('OpenStreetMap contributors')],
             ),
           ],
-        ),
+        )
+        else
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFEAECEF),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.fromLTRB(34, 100, 34, 220),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: const Icon(Icons.my_location_rounded, color: Color(0xFFD20A2E), size: 34),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Menunggu lokasi yang valid',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF171113)),
+                  ),
+                  const SizedBox(height: 7),
+                  const Text(
+                    'Peta akan mengikuti GPS driver atau koordinat order dari server. Lokasi tidak dibuat otomatis.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF665C60), height: 1.45, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
@@ -1193,18 +1644,18 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   _MapActionButton(
                     icon: Icons.arrow_back_rounded,
                     tooltip: 'Kembali ke peta order',
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _closeFullscreen,
                   )
                 else
-                  const _MapChip(
-                    icon: Icons.my_location_rounded,
-                    label: 'Peta pengantaran',
+                  _MapChip(
+                    icon: hasValidGps ? Icons.my_location_rounded : Icons.location_searching_rounded,
+                    label: widget.job == null ? 'Peta pengantaran' : 'Menuju $_destinationLabel',
                   ),
                 const Spacer(),
                 _MapActionButton(
-                  icon: Icons.gps_fixed_rounded,
-                  tooltip: 'Pusatkan lokasi saya',
-                  onPressed: () => _mapController.move(_driverPoint, 16),
+                  icon: _followGps ? Icons.gps_fixed_rounded : Icons.my_location_rounded,
+                  tooltip: _followGps ? 'Ikuti GPS aktif' : 'Ikuti pergerakan GPS',
+                  onPressed: _centerOnDriver,
                 ),
                 if (!widget.fullscreen) ...[
                   const SizedBox(width: 8),
@@ -1224,11 +1675,17 @@ class _DriverMapPageState extends State<DriverMapPage> {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 92),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
                 child: _MapSheet(
                   job: widget.job,
-                  gpsReady: widget.snapshot != null && !widget.snapshot!.mocked,
-                  onNavigate: widget.job == null
+                  gpsReady: hasValidGps,
+                  routeLoading: _routeLoading,
+                  routeError: _routeError,
+                  routeDistanceMeters: _routeDistanceMeters,
+                  routeDurationSeconds: _routeDurationSeconds,
+                  routeReady: _routePoints.length >= 2,
+                  onFollowGps: _centerOnDriver,
+                  onNavigate: widget.job == null || destination == null
                       ? null
                       : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
                 ),
@@ -1242,13 +1699,37 @@ class _DriverMapPageState extends State<DriverMapPage> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                child: _FullscreenRouteCard(job: widget.job!),
+                child: _FullscreenRouteCard(
+                  job: widget.job!,
+                  routeDistanceMeters: _routeDistanceMeters,
+                  routeDurationSeconds: _routeDurationSeconds,
+                  routeReady: _routePoints.length >= 2,
+                  onFollowGps: _centerOnDriver,
+                  onNavigate: destination == null
+                      ? null
+                      : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                ),
               ),
             ),
           ),
       ],
     );
   }
+}
+
+String _routeDistanceLabel(double? meters) {
+  if (meters == null || !meters.isFinite || meters < 0) return 'Jarak menunggu';
+  if (meters < 1000) return '${meters.round()} m';
+  return '${(meters / 1000).toStringAsFixed(1)} km';
+}
+
+String _routeDurationLabel(double? seconds) {
+  if (seconds == null || !seconds.isFinite || seconds < 0) return 'Waktu menunggu';
+  final minutes = (seconds / 60).round();
+  if (minutes < 60) return '$minutes menit';
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  return remainder == 0 ? '$hours jam' : '$hours jam $remainder mnt';
 }
 
 class _MapActionButton extends StatelessWidget {
@@ -1279,9 +1760,21 @@ class _MapActionButton extends StatelessWidget {
 }
 
 class _FullscreenRouteCard extends StatelessWidget {
-  const _FullscreenRouteCard({required this.job});
+  const _FullscreenRouteCard({
+    required this.job,
+    required this.routeDistanceMeters,
+    required this.routeDurationSeconds,
+    required this.routeReady,
+    required this.onFollowGps,
+    required this.onNavigate,
+  });
 
   final DriverJobView job;
+  final double? routeDistanceMeters;
+  final double? routeDurationSeconds;
+  final bool routeReady;
+  final VoidCallback onFollowGps;
+  final VoidCallback? onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -1295,9 +1788,7 @@ class _FullscreenRouteCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0x55D20A2E)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x55000000), blurRadius: 22, offset: Offset(0, 8)),
-        ],
+        boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 22, offset: Offset(0, 8))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1308,38 +1799,64 @@ class _FullscreenRouteCard extends StatelessWidget {
               const Icon(Icons.route_rounded, color: Color(0xFFFF405D)),
               const SizedBox(width: 8),
               const Expanded(
-                child: Text(
-                  'Rute pengantaran',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                ),
+                child: Text('Rute pengantaran',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
               ),
               Text(job.code, style: const TextStyle(color: Colors.white70, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
           Text(job.storeName, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           Text(job.pickupAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Divider(color: Color(0x44FFFFFF), height: 1),
           ),
           Text(job.customerName, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           Text(job.dropoffAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 14),
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.route_outlined, size: 17, color: Color(0xFFFF9CAB)),
+              const SizedBox(width: 7),
+              Expanded(child: Text(
+                routeReady
+                    ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                    : 'Jarak dan waktu tersedia saat rute jalan berhasil dimuat',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
+              )),
+            ],
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => _openRoadNavigation(context, job),
-              icon: const Icon(Icons.navigation_rounded),
-              label: const Text('Mulai navigasi'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFD20A2E),
-                foregroundColor: Colors.white,
+              onPressed: onFollowGps,
+              icon: const Icon(Icons.my_location_rounded),
+              label: const Text('Ikuti GPS di peta ini'),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD20A2E)),
+            ),
+          ),
+          if (onNavigate != null)
+            Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                onPressed: onNavigate,
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('Buka Google Maps (opsional)'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
               ),
+            ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Peta © OpenStreetMap contributors · Rute jalan OSRM',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 10),
             ),
           ),
         ],
@@ -1776,8 +2293,12 @@ class _HeroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0E6D50), Color(0xFF1BB27A)],
+        gradient: LinearGradient(
+          colors: mocked
+              ? const [Color(0xFF3B1C22), Color(0xFF84212F)]
+              : online
+                  ? const [Color(0xFF24191C), Color(0xFF8B001F)]
+                  : const [Color(0xFF21191B), Color(0xFF433338)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -2081,62 +2602,53 @@ Future<void> _openRoadNavigation(
   DriverJobView job, {
   LocationSnapshot? snapshot,
 }) async {
-  final status = job.status.toLowerCase();
-  final isHeadingToCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered', 'completed']
-      .contains(status);
-  final point = isHeadingToCustomer ? job.dropoff : job.pickup;
-  final address = isHeadingToCustomer ? job.dropoffAddress : job.pickupAddress;
+  final goingToCustomer = driverNavigationLegForStatus(job.status) == 'dropoff';
+  final point = goingToCustomer ? job.dropoff : job.pickup;
+  final address = goingToCustomer ? job.dropoffAddress : job.pickupAddress;
   final destination = point != null
       ? '${point.latitude},${point.longitude}'
       : (address.trim().isEmpty || address == '-' ? '' : address.trim());
 
   if (destination.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(isHeadingToCustomer
-          ? 'Alamat atau koordinat pelanggan belum tersedia pada order ini.'
-          : 'Alamat atau koordinat merchant belum tersedia pada order ini.')),
+      SnackBar(content: Text(goingToCustomer
+          ? 'Koordinat/alamat pelanggan belum tersedia di order.'
+          : 'Koordinat/alamat merchant belum tersedia di order.')),
     );
     return;
   }
 
-  final googleMapsUri = Uri.https('www.google.com', '/maps/dir/', {
+  final nativeUri = Uri.parse('google.navigation:q=${Uri.encodeComponent(destination)}&mode=d');
+  final directionsUri = Uri.https('www.google.com', '/maps/dir/', {
     if (snapshot != null && !snapshot.mocked)
       'origin': '${snapshot.position.latitude},${snapshot.position.longitude}',
     'destination': destination,
     'travelmode': 'driving',
     'dir_action': 'navigate',
   });
-  final nativeNavigationUri = Uri.parse('google.navigation:q=${Uri.encodeComponent(destination)}&mode=d');
 
   try {
-    final openedNative = await launchUrl(
-      nativeNavigationUri,
-      mode: LaunchMode.externalApplication,
-    );
+    final openedNative = await launchUrl(nativeUri, mode: LaunchMode.externalApplication);
     if (openedNative || !context.mounted) return;
-
-    final openedWeb = await launchUrl(
-      googleMapsUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!openedWeb && context.mounted) {
+    final openedDirections = await launchUrl(directionsUri, mode: LaunchMode.externalApplication);
+    if (!openedDirections && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aplikasi navigasi tidak ditemukan. Instal atau aktifkan aplikasi peta, lalu coba lagi.')),
+        const SnackBar(content: Text('Aplikasi navigasi tidak dapat dibuka. Rute jalan tetap terlihat pada peta aplikasi.')),
       );
     }
   } catch (_) {
     if (!context.mounted) return;
     try {
-      final openedWeb = await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
-      if (!openedWeb && context.mounted) {
+      final opened = await launchUrl(directionsUri, mode: LaunchMode.externalApplication);
+      if (!opened && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Navigasi tidak dapat dibuka. Periksa aplikasi peta atau koneksi perangkat.')),
+          const SnackBar(content: Text('Navigasi eksternal tidak tersedia. Rute jalan di peta aplikasi tetap dapat digunakan.')),
         );
       }
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Navigasi gagal dibuka. Aplikasi BersolekMart tetap aktif.')),
+          const SnackBar(content: Text('Navigasi eksternal gagal dibuka. Aplikasi BersolekMart tetap aktif.')),
         );
       }
     }
@@ -2147,11 +2659,23 @@ class _MapSheet extends StatelessWidget {
   const _MapSheet({
     required this.job,
     required this.gpsReady,
+    required this.routeLoading,
+    required this.routeError,
+    required this.routeDistanceMeters,
+    required this.routeDurationSeconds,
+    required this.routeReady,
+    required this.onFollowGps,
     required this.onNavigate,
   });
 
   final DriverJobView? job;
   final bool gpsReady;
+  final bool routeLoading;
+  final String? routeError;
+  final double? routeDistanceMeters;
+  final double? routeDurationSeconds;
+  final bool routeReady;
+  final VoidCallback onFollowGps;
   final VoidCallback? onNavigate;
 
   @override
@@ -2164,15 +2688,13 @@ class _MapSheet extends StatelessWidget {
           child: Row(
             children: [
               CircleAvatar(
-                backgroundColor: Color(0xFFDDF6E9),
-                child: Icon(Icons.map_outlined, color: Color(0xFF147D58)),
+                backgroundColor: Color(0xFFFFE5E9),
+                child: Icon(Icons.map_outlined, color: Color(0xFFD20A2E)),
               ),
               SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  'Pilih order untuk melihat titik pickup dan tujuan.',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
+                child: Text('Pilih order untuk melihat pickup, tujuan, dan rute jalan.',
+                  style: TextStyle(fontWeight: FontWeight.w700, height: 1.4)),
               ),
             ],
           ),
@@ -2181,30 +2703,34 @@ class _MapSheet extends StatelessWidget {
     }
 
     return Card(
-      elevation: 10,
+      elevation: 12,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    job!.code,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
+                Expanded(child: Text(job!.code,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
                 _StatusChip(status: job!.statusLabel),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              gpsReady ? 'GPS aktif' : 'Menunggu GPS',
-              style: const TextStyle(color: Colors.black54),
+            const SizedBox(height: 5),
+            Row(
+              children: [
+                Icon(
+                  gpsReady ? Icons.gps_fixed_rounded : Icons.gps_off_rounded,
+                  size: 16,
+                  color: gpsReady ? const Color(0xFF147D58) : Colors.black45,
+                ),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Menunggu GPS valid',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                )),
+              ],
             ),
             const SizedBox(height: 12),
             _RouteLine(
@@ -2216,17 +2742,78 @@ class _MapSheet extends StatelessWidget {
             const SizedBox(height: 8),
             _RouteLine(
               icon: Icons.location_on_rounded,
-              color: const Color(0xFFD84040),
+              color: const Color(0xFFD20A2E),
               title: job!.customerName,
               address: job!.dropoffAddress,
             ),
             const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F2F3),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  if (routeLoading)
+                    const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)),
+                    )
+                  else
+                    Icon(
+                      routeReady ? Icons.alt_route_rounded : Icons.route_outlined,
+                      color: routeReady ? const Color(0xFF147D58) : const Color(0xFFD20A2E),
+                      size: 18,
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    routeLoading
+                        ? 'Menghitung rute jalan…'
+                        : routeReady
+                            ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                            : (routeError ?? 'Aktifkan GPS untuk menghitung rute jalan.'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.3,
+                      fontWeight: routeReady ? FontWeight.w900 : FontWeight.w600,
+                      color: routeReady ? const Color(0xFF147D58) : const Color(0xFF665C60),
+                    ),
+                  )),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (routeReady)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'Estimasi jarak/waktu dari routing jalan; belum memakai data lalu lintas real-time.',
+                  style: TextStyle(color: Colors.black45, fontSize: 10, height: 1.35),
+                ),
+              ),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: onNavigate,
-                icon: const Icon(Icons.navigation_rounded),
-                label: const Text('Buka navigasi jalan'),
+                onPressed: onFollowGps,
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('Ikuti GPS di peta ini'),
+              ),
+            ),
+            if (onNavigate != null)
+              Center(
+                child: TextButton.icon(
+                  onPressed: onNavigate,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Buka Google Maps (opsional)'),
+                ),
+              ),
+            const Padding(
+              padding: EdgeInsets.only(top: 7),
+              child: Text(
+                'Peta © OpenStreetMap contributors · Rute jalan OSRM',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black45, fontSize: 10),
               ),
             ),
           ],

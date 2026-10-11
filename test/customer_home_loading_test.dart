@@ -9,8 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _SlowOptionalApi extends ApiClient {
-  _SlowOptionalApi() : super(SecureStore());
+  _SlowOptionalApi({this.holdProducts = false}) : super(SecureStore());
 
+  final bool holdProducts;
+  final Completer<dynamic> products = Completer<dynamic>();
   final Completer<dynamic> categories = Completer<dynamic>();
   final Completer<dynamic> cms = Completer<dynamic>();
 
@@ -25,7 +27,7 @@ class _SlowOptionalApi extends ApiClient {
   }) {
     switch (path) {
       case '/catalog/products':
-        return Future<dynamic>.value({
+        final response = {
           'ok': true,
           'data': [
             {
@@ -38,7 +40,8 @@ class _SlowOptionalApi extends ApiClient {
               'store_name': 'UMKM Uji',
             },
           ],
-        });
+        };
+        return holdProducts ? products.future : Future<dynamic>.value(response);
       case '/catalog/categories':
         return categories.future;
       case '/cms/home':
@@ -71,4 +74,45 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );
+  testWidgets(
+    'member home keeps search and product skeleton visible while product API is pending',
+    (tester) async {
+      final api = _SlowOptionalApi(holdProducts: true);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiClientProvider.overrideWith((ref) => api)],
+          child: const MaterialApp(home: Scaffold(body: CustomerHome())),
+        ),
+      );
+      await tester.pump();
+
+      // It must not regress to a single centered spinner/blank screen during a slow API call.
+      expect(find.text('Produk UMKM Lokal'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Memuat katalog dari server…'), findsOneWidget);
+      expect(find.byType(Card).evaluate().length, greaterThanOrEqualTo(4));
+
+      api.products.complete({
+        'ok': true,
+        'data': [
+          {
+            'id': 17,
+            'name': 'Produk Uji',
+            'price': 12500,
+            'sale_price': null,
+            'image': '/assets/demo/products/default.svg',
+            'status': 'active',
+            'store_name': 'UMKM Uji',
+          },
+        ],
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Produk Uji'), findsOneWidget);
+      expect(find.text('Memuat katalog dari server…'), findsNothing);
+    },
+  );
+
 }

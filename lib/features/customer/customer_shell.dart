@@ -149,7 +149,10 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         _selectedCategory = category;
         _index = 0;
       })),
-      CustomerCart(key: ValueKey('cart-$_cartRevision')),
+      CustomerCart(
+        key: ValueKey('cart-$_cartRevision'),
+        onContinueShopping: () => setState(() => _index = 0),
+      ),
       const CustomerOrders(),
       const CustomerProfile(),
     ];
@@ -205,7 +208,9 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   // Keep optional CMS/category calls independent from the primary product request.
   late Future<List<dynamic>> _future;
   final _search = TextEditingController();
+  Timer? _searchDebounce;
   String? _category;
+  String _sortBy = 'recommended';
   List<dynamic> _categories = const [];
   List<dynamic> _heroSlides = const [];
   String _apiBase = ApiClient.defaultBaseUrl;
@@ -227,14 +232,14 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     }
   }
 
-  Future<bool> _addToCart(Map<String, dynamic> product) async {
+  Future<bool> _addToCart(Map<String, dynamic> product, {int quantity = 1}) async {
     final id = int.tryParse(product['id']?.toString() ?? '') ?? 0;
     if (id < 1) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ini tidak memiliki ID yang valid.')));
       return false;
     }
     try {
-      await ref.read(apiClientProvider).post('/cart/items', {'product_id': id, 'qty': 1});
+      await ref.read(apiClientProvider).post('/cart/items', {'product_id': id, 'qty': quantity});
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang.')));
       widget.onOpenCart?.call();
@@ -249,15 +254,41 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   Future<List<dynamic>> _loadProducts() async {
     final api = ref.read(apiClientProvider);
+    final stopwatch = Stopwatch()..start();
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
 
     try {
       final payload = await api.get('/catalog/products', query: query);
-      final products = catalogProductsFromPayload(payload);
+      final products = List<dynamic>.from(catalogProductsFromPayload(payload));
+      double effectivePrice(dynamic raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        final base = _number(item['price']);
+        final sale = _number(item['sale_price']);
+        return sale > 0 && base > 0 && sale < base ? sale : base;
+      }
+
+      switch (_sortBy) {
+        case 'price_low':
+          products.sort((a, b) => effectivePrice(a).compareTo(effectivePrice(b)));
+          break;
+        case 'price_high':
+          products.sort((a, b) => effectivePrice(b).compareTo(effectivePrice(a)));
+          break;
+        case 'name':
+          products.sort((a, b) => readableApiValue(a['name']).toLowerCase()
+              .compareTo(readableApiValue(b['name']).toLowerCase()));
+          break;
+        // "recommended" preserves the backend's existing order.
+      }
+      stopwatch.stop();
       if (kDebugMode) {
-        debugPrint('[BersolekMart Catalog] products loaded=${products.length}; query=${query.keys.join(',')}.');
+        debugPrint(
+          '[BersolekMart Catalog] products loaded=${products.length}; '
+          'elapsed=${stopwatch.elapsedMilliseconds}ms; sort=$_sortBy; '
+          'query=${query.keys.join(',')}.',
+        );
       }
       return products;
     } catch (error) {
@@ -265,7 +296,11 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
         final detail = error is ApiException
             ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
             : error.runtimeType.toString();
-        debugPrint('[BersolekMart Catalog] products request/payload failed ($detail).');
+        stopwatch.stop();
+        debugPrint(
+          '[BersolekMart Catalog] products request/payload failed after '
+          '${stopwatch.elapsedMilliseconds}ms ($detail).',
+        );
       }
       rethrow;
     }
@@ -329,8 +364,16 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   }
 
   void _reload() {
+    _searchDebounce?.cancel();
     setState(() => _future = _loadProducts());
-    _loadOptionalContent();
+  }
+
+  void _scheduleSearch(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _reload();
+    });
   }
 
   Future<void> _refresh() async {
@@ -344,188 +387,302 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     }
   }
 
+  Widget _catalogLoadingGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 4,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: .73,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      itemBuilder: (context, index) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Container(
+                color: const Color(0xFFF1EAEC),
+                alignment: Alignment.center,
+                child: const Icon(Icons.image_outlined, size: 30, color: Color(0xFFD2C6C9)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 11),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(height: 10, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFEDE6E8), borderRadius: BorderRadius.circular(6))),
+                const SizedBox(height: 7),
+                Container(height: 10, width: 78, decoration: BoxDecoration(color: const Color(0xFFEDE6E8), borderRadius: BorderRadius.circular(6))),
+                const SizedBox(height: 9),
+                Container(height: 14, width: 92, decoration: BoxDecoration(color: const Color(0xFFFFE0E6), borderRadius: BorderRadius.circular(6))),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _catalogStatePanel({
+    required IconData icon,
+    required String title,
+    required String message,
+    required Widget action,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 18),
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFEDE3E5)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(color: const Color(0xFFFFE9ED), borderRadius: BorderRadius.circular(18)),
+            child: Icon(icon, size: 30, color: const Color(0xFFD20A2E)),
+          ),
+          const SizedBox(height: 12),
+          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+          const SizedBox(height: 6),
+          Text(message, textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF6B6265), height: 1.4, fontSize: 13)),
+          const SizedBox(height: 14),
+          action,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeContent(AsyncSnapshot<List<dynamic>> snapshot) {
+    final loading = snapshot.connectionState == ConnectionState.waiting;
+    final error = snapshot.hasError ? snapshot.error : null;
+    final items = (!loading && error == null) ? (snapshot.data ?? const <dynamic>[]) : const <dynamic>[];
+    final apiBase = _apiBase;
+    final categories = _categories;
+    final hasFilter = _search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false);
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 18),
+      children: [
+        _CmsHeroCarousel(slides: _heroSlides, apiBase: apiBase),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _search,
+          textInputAction: TextInputAction.search,
+          onChanged: _scheduleSearch,
+          onSubmitted: (_) => _reload(),
+          decoration: InputDecoration(
+            hintText: 'Cari produk, toko, atau kategori…',
+            prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: IconButton(
+              tooltip: 'Cari',
+              icon: const Icon(Icons.arrow_forward_rounded),
+              onPressed: _reload,
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(children: [
+          const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+          TextButton(
+            onPressed: _category == null ? null : () {
+              _category = null;
+              _reload();
+            },
+            child: const Text('Semua'),
+          ),
+        ]),
+        SizedBox(
+          height: 82,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: categories.length + 1,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _CategoryTile(
+                  label: 'Semua',
+                  icon: Icons.apps_rounded,
+                  selected: _category == null,
+                  onTap: () {
+                    if (_category == null) return;
+                    _category = null;
+                    _reload();
+                  },
+                );
+              }
+              final category = Map<String, dynamic>.from(categories[index - 1] as Map);
+              final slug = (category['slug'] ?? '').toString();
+              return _CategoryTile(
+                label: (category['name'] ?? 'Kategori').toString().trim(),
+                icon: _categoryIcon((category['name'] ?? '').toString()),
+                selected: _category == slug,
+                onTap: () {
+                  _category = slug;
+                  _reload();
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+          if (loading)
+            const SizedBox.square(dimension: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)))
+          else
+            Text(error != null ? '—' : '${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 11)),
+          const SizedBox(width: 2),
+          PopupMenuButton<String>(
+            tooltip: 'Urutkan produk',
+            icon: const Icon(Icons.sort_rounded, size: 22),
+            onSelected: (value) {
+              if (value == _sortBy) return;
+              setState(() => _sortBy = value);
+              _reload();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'recommended', child: Text('Rekomendasi')),
+              PopupMenuItem(value: 'price_low', child: Text('Harga terendah')),
+              PopupMenuItem(value: 'price_high', child: Text('Harga tertinggi')),
+              PopupMenuItem(value: 'name', child: Text('Nama A–Z')),
+            ],
+          ),
+        ]),
+        const SizedBox(height: 8),
+        if (loading) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(2, 4, 2, 10),
+            child: Text('Memuat katalog dari server…', style: TextStyle(color: Color(0xFF6B6265), fontSize: 12)),
+          ),
+          _catalogLoadingGrid(),
+        ] else if (error != null)
+          _catalogStatePanel(
+            icon: Icons.cloud_off_rounded,
+            title: 'Produk belum dapat dimuat',
+            message: catalogErrorMessage(error),
+            action: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _reload,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Coba muat ulang'),
+              ),
+            ),
+          )
+        else if (items.isEmpty)
+          _catalogStatePanel(
+            icon: Icons.shopping_bag_outlined,
+            title: hasFilter ? 'Produk tidak ditemukan' : 'Belum ada produk aktif',
+            message: hasFilter
+                ? 'Coba kata kunci lain atau hapus filter untuk melihat produk yang tersedia.'
+                : 'Katalog berhasil dimuat, tetapi server belum mengembalikan produk aktif.',
+            action: hasFilter
+                ? OutlinedButton.icon(
+                    onPressed: () {
+                      _search.clear();
+                      _category = null;
+                      _reload();
+                    },
+                    icon: const Icon(Icons.filter_alt_off_rounded),
+                    label: const Text('Hapus pencarian dan filter'),
+                  )
+                : OutlinedButton.icon(
+                    onPressed: _reload,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Muat ulang katalog'),
+                  ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: .73,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemBuilder: (context, index) {
+              final product = Map<String, dynamic>.from(items[index] as Map);
+              final basePrice = _number(product['price']);
+              final salePrice = _number(product['sale_price']);
+              final price = salePrice > 0 && basePrice > 0 && salePrice < basePrice ? salePrice : basePrice;
+              final image = (product['image'] ?? '').toString();
+              return InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => _showProduct(
+                  context,
+                  product,
+                  apiBase,
+                  onAddToCart: (quantity) => _addToCart(product, quantity: quantity),
+                ),
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 1.30,
+                        child: Hero(
+                          tag: 'product-${product['id']}',
+                          child: ProductImageView(path: image, apiBase: apiBase),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(9, 8, 9, 9),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
+                              const Spacer(),
+                              Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
+                              const SizedBox(height: 3),
+                              Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1,
+                                overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: FutureBuilder<List<dynamic>>(
         future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            final error = snapshot.error!;
-            return _ErrorPanel(
-              message: catalogErrorMessage(error),
-              onRetry: _reload,
-            );
-          }
-
-          final items = snapshot.data ?? const <dynamic>[];
-          final categories = _categories;
-          final apiBase = _apiBase;
-
-          return ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
-              _CmsHeroCarousel(
-                slides: _heroSlides,
-                apiBase: apiBase,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _search,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _reload(),
-                decoration: InputDecoration(
-                  hintText: 'Cari produk, toko, atau kategori…',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: IconButton(icon: const Icon(Icons.arrow_forward_rounded), onPressed: _reload),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(children: [
-                const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
-                TextButton(
-                  onPressed: () {
-                    if (_category == null) return;
-                    _category = null;
-                    _reload();
-                  },
-                  child: const Text('Semua'),
-                ),
-              ]),
-              SizedBox(
-                height: 94,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: categories.length + 1,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _CategoryTile(label: 'Semua', icon: Icons.apps_rounded, selected: _category == null, onTap: () {
-                        _category = null;
-                        _reload();
-                      });
-                    }
-                    final category = Map<String, dynamic>.from(categories[index - 1] as Map);
-                    final slug = (category['slug'] ?? '').toString();
-                    return _CategoryTile(
-                      label: (category['name'] ?? 'Kategori').toString().trim(),
-                      icon: _categoryIcon((category['name'] ?? '').toString()),
-                      selected: _category == slug,
-                      onTap: () {
-                        _category = slug;
-                        _reload();
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(children: [
-                const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-                Text('${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 12)),
-              ]),
-              const SizedBox(height: 12),
-              if (items.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 8),
-                  child: Column(children: [
-                    const Icon(Icons.inventory_2_outlined, size: 54, color: Color(0xFFB5AEB0)),
-                    const SizedBox(height: 10),
-                    Text(
-                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Tidak ada produk untuk filter ini.'
-                          : 'Belum ada produk aktif dari server.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Hapus pencarian atau pilih kategori lain untuk melihat hasil berbeda.'
-                          : 'Katalog berhasil dimuat, tetapi server tidak mengembalikan produk aktif.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.black54, height: 1.4),
-                    ),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? () {
-                              _search.clear();
-                              _category = null;
-                              _reload();
-                            }
-                          : _reload,
-                      icon: Icon((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? Icons.filter_alt_off_rounded
-                          : Icons.refresh_rounded),
-                      label: Text((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Hapus filter'
-                          : 'Muat ulang katalog'),
-                    ),
-                  ]),
-                )
-              else
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: items.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, childAspectRatio: .60, crossAxisSpacing: 12, mainAxisSpacing: 12,
-                  ),
-                  itemBuilder: (context, index) {
-                    final product = Map<String, dynamic>.from(items[index] as Map);
-                    final basePrice = _number(product['price']);
-                    final salePrice = _number(product['sale_price']);
-                    final price = salePrice > 0 && basePrice > 0 && salePrice < basePrice ? salePrice : basePrice;
-                    final image = (product['image'] ?? '').toString();
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () => _showProduct(context, product, apiBase, onAddToCart: () => _addToCart(product)),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(child: ProductImageView(path: image, apiBase: apiBase)),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
-                                  const SizedBox(height: 7),
-                                  Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
-                                  const SizedBox(height: 5),
-                                  Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11, color: Colors.black54)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            ],
-          );
-        },
+        builder: (context, snapshot) => _buildHomeContent(snapshot),
       ),
     );
   }
-
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
@@ -570,10 +727,26 @@ class _ImageFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: const Color(0xFFF4EEEE),
+    color: const Color(0xFFF7EFF1),
     alignment: Alignment.center,
-    child: Icon(loading ? Icons.hourglass_top_rounded : Icons.image_not_supported_outlined,
-      size: 42, color: const Color(0xFFB7AEB0)),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (loading)
+          const SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)),
+          )
+        else
+          const Icon(Icons.image_not_supported_outlined, size: 30, color: Color(0xFF89797D)),
+        const SizedBox(height: 7),
+        Text(
+          loading ? 'Memuat foto…' : 'Foto tidak tersedia',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF89797D)),
+        ),
+      ],
+    ),
   );
 }
 
@@ -623,61 +796,255 @@ double _number(dynamic value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
-void _showProduct(BuildContext context, Map<String, dynamic> product, String apiBase, {required Future<bool> Function() onAddToCart}) {
-  final base = _number(product['price']);
-  final sale = _number(product['sale_price']);
-  final price = sale > 0 && base > 0 && sale < base ? sale : base;
-  showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    backgroundColor: Colors.white,
-    builder: (context) => SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: SizedBox(height: 230, width: double.infinity,
-                child: ProductImageView(path: (product['image'] ?? '').toString(), apiBase: apiBase)),
-            ),
-            const SizedBox(height: 16),
-            Text(readableApiValue(product['name'], fallback: 'Produk'), style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            Text(formatRupiah(price), style: const TextStyle(fontSize: 22, color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Text(readableApiValue(product['store_name'], fallback: 'UMKM Lokal'), style: const TextStyle(color: Colors.black54)),
-            const SizedBox(height: 14),
-            Text(readableApiValue(product['description'], fallback: 'Informasi produk belum tersedia.'), style: const TextStyle(height: 1.45)),
-            const SizedBox(height: 12),
-            Text('Stok tersedia: ${product['stock'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 18),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () async {
-                  final added = await onAddToCart();
-                  if (added && context.mounted) Navigator.of(context).pop();
-                },
-                icon: const Icon(Icons.add_shopping_cart_rounded),
-                label: const Text('Tambah ke Keranjang'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text('Harga dan stok mengikuti data server BersolekMart.',
-              style: TextStyle(fontSize: 12, color: Colors.black54)),
-          ],
-        ),
+void _showProduct(
+  BuildContext context,
+  Map<String, dynamic> product,
+  String apiBase, {
+  required Future<bool> Function(int quantity) onAddToCart,
+}) {
+  Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: (_) => _CustomerProductDetailPage(
+        product: product,
+        apiBase: apiBase,
+        onAddToCart: onAddToCart,
       ),
     ),
   );
 }
 
+class _CustomerProductDetailPage extends StatefulWidget {
+  const _CustomerProductDetailPage({
+    required this.product,
+    required this.apiBase,
+    required this.onAddToCart,
+  });
+
+  final Map<String, dynamic> product;
+  final String apiBase;
+  final Future<bool> Function(int quantity) onAddToCart;
+
+  @override
+  State<_CustomerProductDetailPage> createState() => _CustomerProductDetailPageState();
+}
+
+class _CustomerProductDetailPageState extends State<_CustomerProductDetailPage> {
+  int _quantity = 1;
+  bool _adding = false;
+
+  num get _basePrice => _number(widget.product['price']);
+  num get _salePrice => _number(widget.product['sale_price']);
+  num get _price => _salePrice > 0 && _basePrice > 0 && _salePrice < _basePrice
+      ? _salePrice
+      : _basePrice;
+  int? get _stock {
+    final raw = widget.product['stock'];
+    if (raw == null || raw.toString().trim().isEmpty) return null;
+    return int.tryParse(raw.toString());
+  }
+  bool get _outOfStock => _stock != null && _stock! <= 0;
+
+  Future<void> _add() async {
+    if (_adding || _outOfStock) return;
+    setState(() => _adding = true);
+    try {
+      final added = await widget.onAddToCart(_quantity);
+      if (added && mounted) Navigator.of(context).pop(true);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = readableApiValue(widget.product['name'], fallback: 'Produk UMKM');
+    final description = readableApiValue(
+      widget.product['description'],
+      fallback: 'Informasi tambahan produk belum tersedia.',
+    );
+    final storeName = readableApiValue(widget.product['store_name'], fallback: 'UMKM lokal');
+    final image = (widget.product['image'] ?? '').toString();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F4F4),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF171113),
+        elevation: 0,
+        title: const Text('Detail Produk', style: TextStyle(fontWeight: FontWeight.w900)),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: AspectRatio(
+                    aspectRatio: 1.08,
+                    child: Hero(
+                      tag: 'product-${widget.product['id']}',
+                      child: ProductImageView(path: image, apiBase: widget.apiBase),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(17),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFEDE5E6)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFE8EB),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text('PRODUK UMKM',
+                              style: TextStyle(color: Color(0xFFD20A2E), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: .7)),
+                          ),
+                          const Spacer(),
+                          if (_outOfStock)
+                            const Text('Stok habis', style: TextStyle(color: Color(0xFFB00020), fontWeight: FontWeight.w800, fontSize: 12)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(name, style: const TextStyle(fontSize: 24, height: 1.15, fontWeight: FontWeight.w900, letterSpacing: -.4)),
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(child: Text(
+                            formatRupiah(_price),
+                            style: const TextStyle(color: Color(0xFFD20A2E), fontSize: 25, fontWeight: FontWeight.w900),
+                          )),
+                          if (_price < _basePrice)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(formatRupiah(_basePrice),
+                                style: const TextStyle(color: Colors.black45, decoration: TextDecoration.lineThrough, fontSize: 13)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(Icons.storefront_outlined, size: 19, color: Color(0xFFD20A2E)),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.w800))),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 14),
+                      const Text('Deskripsi produk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      Text(description, style: const TextStyle(color: Color(0xFF5F5659), height: 1.5)),
+                      if (_stock != null) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black54),
+                            const SizedBox(width: 8),
+                            Text('Stok tersedia: ${_stock!}',
+                              style: TextStyle(fontWeight: FontWeight.w700, color: _outOfStock ? const Color(0xFFB00020) : Colors.black87)),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Expanded(child: Text('Jumlah', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15))),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F3F4),
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(color: const Color(0xFFE8DDE0)),
+                            ),
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _adding || _quantity <= 1 ? null : () => setState(() => _quantity--),
+                                  icon: const Icon(Icons.remove_rounded),
+                                ),
+                                SizedBox(width: 28, child: Text('$_quantity', textAlign: TextAlign.center,
+                                  style: const TextStyle(fontWeight: FontWeight.w900))),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _adding || _outOfStock || (_stock != null && _quantity >= _stock!)
+                                      ? null
+                                      : () => setState(() => _quantity++),
+                                  icon: const Icon(Icons.add_rounded),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Center(child: Text('Harga dan stok mengikuti data server BersolekMart.',
+                  style: TextStyle(fontSize: 11, color: Colors.black54))),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [BoxShadow(color: Color(0x10000000), blurRadius: 16, offset: Offset(0, -4))],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Total sementara', style: TextStyle(color: Colors.black54, fontSize: 11)),
+                        const SizedBox(height: 2),
+                        Text(formatRupiah(_price * _quantity),
+                          style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _adding || _outOfStock ? null : _add,
+                      icon: _adding
+                          ? const SizedBox.square(dimension: 17, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.add_shopping_cart_rounded),
+                      label: Text(_adding ? 'Menambahkan…' : _outOfStock ? 'Stok habis' : 'Tambah ke Keranjang'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class CustomerCart extends ConsumerStatefulWidget {
-  const CustomerCart({super.key});
+  const CustomerCart({super.key, required this.onContinueShopping});
+
+  final VoidCallback onContinueShopping;
 
   @override
   ConsumerState<CustomerCart> createState() => _CustomerCartState();
@@ -729,7 +1096,7 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Keranjang')),
+    backgroundColor: const Color(0xFFF7F4F4),
     body: FutureBuilder<Map<String, dynamic>>(
       future: _future,
       builder: (context, snapshot) {
@@ -744,16 +1111,43 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
         final items = List<dynamic>.from(data['items'] as List? ?? const []);
         final apiBase = data['apiBase']?.toString() ?? '';
         if (items.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.shopping_basket_outlined, size: 56, color: Color(0xFFD20A2E)),
-                SizedBox(height: 12),
-                Text('Keranjang masih kosong', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                SizedBox(height: 6),
-                Text('Pilih produk lokal lalu tekan Tambah ke Keranjang.', textAlign: TextAlign.center),
-              ]),
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 310),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 92,
+                      height: 92,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE7EB),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: const Icon(Icons.shopping_basket_outlined, size: 44, color: Color(0xFFD20A2E)),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text('Keranjang masih kosong',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 21)),
+                    const SizedBox(height: 8),
+                    const Text('Temukan produk UMKM favoritmu dan tambahkan ke keranjang sebelum checkout.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black54, height: 1.45)),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: widget.onContinueShopping,
+                        icon: const Icon(Icons.storefront_rounded),
+                        label: const Text('Mulai belanja'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           );
         }

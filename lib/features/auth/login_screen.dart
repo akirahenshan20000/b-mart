@@ -51,18 +51,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F5F6),
+      backgroundColor: const Color(0xFFF6F2F3),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            padding: const EdgeInsets.fromLTRB(18, 6, 18, 16),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: (constraints.maxHeight - 36).clamp(0.0, double.infinity).toDouble(),
+                minHeight: (constraints.maxHeight - 22).clamp(0.0, double.infinity).toDouble(),
               ),
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 440),
+                  constraints: const BoxConstraints(maxWidth: 420),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -82,10 +82,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Container(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(26),
+                          borderRadius: BorderRadius.circular(24),
                           border: Border.all(color: const Color(0xFFEFE5E7)),
                           boxShadow: const [
                             BoxShadow(
@@ -101,8 +101,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             Row(
                               children: [
                                 Container(
-                                  width: 54,
-                                  height: 54,
+                                  width: 48,
+                                  height: 48,
                                   padding: const EdgeInsets.all(5),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFFFE8EC),
@@ -144,9 +144,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 28),
+                            const SizedBox(height: 20),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFFF0F2),
                                 borderRadius: BorderRadius.circular(12),
@@ -172,12 +172,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 13),
                             Text(
                               _isDriver ? 'Masuk sebagai Driver' : 'Selamat datang kembali',
                               style: const TextStyle(
-                                fontSize: 27,
-                                height: 1.12,
+                                fontSize: 25,
+                                height: 1.10,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.7,
                               ),
@@ -193,7 +193,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 color: Color(0xFF6B6265),
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
                             Form(
                               key: _formKey,
                               child: Column(
@@ -216,7 +216,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       filled: true,
                                     ),
                                   ),
-                                  const SizedBox(height: 14),
+                                  const SizedBox(height: 11),
                                   TextFormField(
                                     controller: _password,
                                     enabled: !auth.isLoading,
@@ -276,7 +276,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 22),
+                            const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
@@ -302,9 +302,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 13),
                             const Divider(height: 1),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 11),
                             Text(
                               _isDriver
                                   ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.'
@@ -319,7 +319,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 12),
                       const Text(
                         'Administrator, Operator, dan Merchant tetap menggunakan dashboard web.',
                         textAlign: TextAlign.center,
