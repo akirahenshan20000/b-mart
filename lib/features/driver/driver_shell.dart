@@ -256,11 +256,17 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       return null;
     }
 
-    LatLng? point(List<String> latKeys, List<String> lngKeys) {
-      final lat = number(latKeys);
-      final lng = number(lngKeys);
+    LatLng? point(
+      List<String> latKeys,
+      List<String> lngKeys, {
+      bool useDropoffAddress = false,
+    }) {
+      final addressLat = useDropoffAddress ? _asDouble(dropoff['latitude'] ?? dropoff['lat']) : null;
+      final addressLng = useDropoffAddress ? _asDouble(dropoff['longitude'] ?? dropoff['lng'] ?? dropoff['lon']) : null;
+      final lat = number(latKeys) ?? addressLat;
+      final lng = number(lngKeys) ?? addressLng;
       if (lat == null || lng == null) return null;
-      if (lat.abs() > 90 || lng.abs() > 180) return null;
+      if (!lat.isFinite || !lng.isFinite || lat.abs() > 90 || lng.abs() > 180 || (lat == 0 && lng == 0)) return null;
       return LatLng(lat, lng);
     }
 
@@ -284,6 +290,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       dropoff: point(
         const ['dropoff_lat', 'dropoff_latitude', 'destination_lat', 'customer_lat'],
         const ['dropoff_lng', 'dropoff_longitude', 'destination_lng', 'customer_lng'],
+        useDropoffAddress: true,
       ),
     );
   }
@@ -813,7 +820,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     if (requestedStatus == null || jobId == null || jobId < 1) return;
 
     XFile? proof;
-    if (const ['arrived', 'delivered', 'completed'].contains(requestedStatus)) {
+    if (requestedStatus == 'arrived') {
       try {
         final source = await _chooseProofSource();
         if (source == null || !mounted) return;
@@ -868,6 +875,11 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Status order diperbarui oleh server: ${_job.statusLabel}.')),
       );
+      if (const ['picking_up', 'delivering'].contains(actualStatus.toLowerCase())) {
+        // Status has already been accepted by the API; now open the same in-app live map.
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+        if (mounted) widget.onOpenMap();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = error is ApiException
@@ -1196,8 +1208,6 @@ class DriverMapPage extends StatefulWidget {
 
 class _DriverMapPageState extends State<DriverMapPage> {
   final MapController _mapController = MapController();
-  static const LatLng _fallback = LatLng(-7.7543, 113.2159);
-
   bool _mapReady = false;
   bool _followGps = true;
   double _cameraZoom = 15;
@@ -1211,27 +1221,31 @@ class _DriverMapPageState extends State<DriverMapPage> {
   DateTime? _lastRouteRequestAt;
   int _routeRequestGeneration = 0;
 
-  LatLng get _driverPoint {
-    final position = widget.snapshot?.position;
-    return position == null
-        ? (widget.job?.pickup ?? widget.job?.dropoff ?? _fallback)
-        : LatLng(position.latitude, position.longitude);
+  LatLng? get _driverPoint {
+    final snapshot = widget.snapshot;
+    final position = snapshot?.position;
+    if (position != null && snapshot != null && !snapshot.mocked) {
+      return LatLng(position.latitude, position.longitude);
+    }
+    // Job coordinates are server-sourced. If neither GPS nor order coordinates
+    // exist, render a GPS-waiting state instead of inventing a city coordinate.
+    return widget.job?.pickup ?? widget.job?.dropoff;
   }
 
   LatLng? get _activeDestination {
     final job = widget.job;
     if (job == null || job.isCompleted) return null;
     switch (job.status.toLowerCase()) {
-      case 'available':
       case 'assigned':
       case 'accepted':
       case 'picking_up':
         return job.pickup;
       case 'picked_up':
       case 'delivering':
-      case 'arrived':
         return job.dropoff;
       default:
+        // Mirrors public/assets/js/delivery-map.js: no active road route before
+        // assignment or after arrival/delivery/completion.
         return null;
     }
   }
@@ -1254,6 +1268,15 @@ class _DriverMapPageState extends State<DriverMapPage> {
     super.didUpdateWidget(oldWidget);
     final oldTarget = _destinationFor(oldWidget.job);
     final newTarget = _activeDestination;
+    if (_driverPoint == null) {
+      _mapReady = false;
+      _routePoints = const [];
+      _routeDistanceMeters = null;
+      _routeDurationSeconds = null;
+      _routeLoading = false;
+      _routeError = 'Pilih order dengan koordinat, atau aktifkan GPS untuk menampilkan peta.';
+      return;
+    }
     final targetChanged = oldTarget?.latitude != newTarget?.latitude ||
         oldTarget?.longitude != newTarget?.longitude ||
         oldWidget.job?.status != widget.job?.status ||
@@ -1268,7 +1291,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
             LatLng(newPosition.latitude, newPosition.longitude),
           ) >= 2;
       if (changed && _followGps) {
-        _mapController.move(_driverPoint, _cameraZoom);
+        _mapController.move(LatLng(newPosition.latitude, newPosition.longitude), _cameraZoom);
       }
       if (targetChanged || changed) _maybeLoadRoute(force: targetChanged);
     } else if (targetChanged && _mapReady) {
@@ -1441,7 +1464,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
     }
     setState(() => _followGps = true);
     _cameraZoom = _cameraZoom < 15 ? 15 : _cameraZoom;
-    if (_mapReady) _mapController.move(_driverPoint, _cameraZoom);
+    if (_mapReady) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
     _maybeLoadRoute(force: true);
   }
 
@@ -1454,13 +1477,16 @@ class _DriverMapPageState extends State<DriverMapPage> {
     final destination = _activeDestination;
     final snapshot = widget.snapshot;
     final hasValidGps = snapshot != null && !snapshot.mocked;
+    final initialCenter = _driverPoint;
+    if (initialCenter == null) _mapReady = false;
 
     return Stack(
       children: [
-        FlutterMap(
+        if (initialCenter != null)
+          FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _driverPoint,
+            initialCenter: initialCenter,
             initialZoom: 14,
             initialCameraFit: widget.job?.pickup != null && widget.job?.dropoff != null
                 ? CameraFit.bounds(
@@ -1512,7 +1538,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
               markers: [
                 if (hasValidGps)
                   Marker(
-                    point: _driverPoint,
+                    point: LatLng(snapshot.position.latitude, snapshot.position.longitude),
                     width: 54,
                     height: 54,
                     child: Transform.rotate(
@@ -1549,7 +1575,41 @@ class _DriverMapPageState extends State<DriverMapPage> {
               attributions: const [TextSourceAttribution('OpenStreetMap contributors')],
             ),
           ],
-        ),
+        )
+        else
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFEAECEF),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.fromLTRB(34, 100, 34, 220),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: const Icon(Icons.my_location_rounded, color: Color(0xFFD20A2E), size: 34),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Menunggu lokasi yang valid',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF171113)),
+                  ),
+                  const SizedBox(height: 7),
+                  const Text(
+                    'Peta akan mengikuti GPS driver atau koordinat order dari server. Lokasi tidak dibuat otomatis.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF665C60), height: 1.45, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
