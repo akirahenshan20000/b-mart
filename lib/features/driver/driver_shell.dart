@@ -880,6 +880,14 @@ class DriverProfile extends ConsumerWidget {
   final LocationSnapshot? snapshot;
   final VoidCallback onOpenMap;
 
+  void _openVehiclePage(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverVehiclePage()));
+  }
+
+  void _openBanksPage(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverBankAccountsPage()));
+  }
+
   void _openDetails(BuildContext context, String title, IconData icon, Map<String, dynamic> user, List<String> keys, String emptyText) {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => _DriverAccountDetailPage(title: title, icon: icon, user: user, keys: keys, emptyText: emptyText),
@@ -945,14 +953,10 @@ class DriverProfile extends ConsumerWidget {
               const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada respons akun.')),
           const SizedBox(height: 8),
           tile(Icons.two_wheeler_rounded, 'Kendaraan', 'Informasi kendaraan yang terdaftar',
-            () => _openDetails(context, 'Kendaraan', Icons.two_wheeler_rounded, user,
-              const ['vehicle', 'vehicle_type', 'vehicle_plate', 'plate_number', 'license_plate'],
-              'Data kendaraan belum tersedia pada respons akun mobile.')),
+            _openVehiclePage(context)),
           const SizedBox(height: 8),
           tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Informasi rekening driver',
-            () => _openDetails(context, 'Rekening Pencairan', Icons.account_balance_outlined, user,
-              const ['bank_account', 'bank_name', 'bank_code', 'account_name', 'account_number'],
-              'Data rekening belum tersedia pada respons akun mobile. Endpoint perubahan rekening harus diverifikasi sebelum fitur simpan diaktifkan.')),
+            _openBanksPage(context)),
           const SizedBox(height: 8),
           tile(Icons.shield_outlined, 'Keamanan Lokasi',
             snapshot?.mocked == true ? 'Lokasi mencurigakan terdeteksi' : 'Status pemantauan lokasi perangkat',
@@ -1051,6 +1055,131 @@ class _DriverAccountDetailPage extends StatelessWidget {
             ),
     );
   }
+}
+
+class DriverVehiclePage extends ConsumerStatefulWidget {
+  const DriverVehiclePage({super.key});
+
+  @override
+  ConsumerState<DriverVehiclePage> createState() => _DriverVehiclePageState();
+}
+
+class _DriverVehiclePageState extends ConsumerState<DriverVehiclePage> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>> _load() async {
+    final payload = await ref.read(apiClientProvider).get('/driver/profile');
+    return Map<String, dynamic>.from(payload is Map && payload['data'] is Map ? payload['data'] as Map : const {});
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Kendaraan')),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return _ErrorCard(
+          message: 'Data kendaraan belum dapat dimuat. Pastikan endpoint /driver/profile sudah tersedia.',
+          onRetry: () async { setState(() => _future = _load()); },
+        );
+        final data = snapshot.data ?? const {};
+        final fields = <String, String>{
+          'Jenis kendaraan': readableDriverValue(data['vehicle_type'], fallback: 'Belum diatur'),
+          'Nomor polisi': readableDriverValue(data['vehicle_plate'], fallback: 'Belum diisi'),
+          'Wilayah layanan': readableDriverValue(data['service_area'], fallback: 'Belum diatur'),
+          'Status driver': readableDriverValue(data['status'], fallback: 'Belum diketahui'),
+        };
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (final entry in fields.entries)
+              Card(child: ListTile(
+                title: Text(entry.key, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                subtitle: Padding(padding: const EdgeInsets.only(top: 5), child: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
+              )),
+            const SizedBox(height: 8),
+            const Text('Informasi ini dibaca dari profil driver backend. Perubahan kendaraan tetap mengikuti proses yang tersedia di PWA/operator.',
+              style: TextStyle(color: Colors.black54, height: 1.45)),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class DriverBankAccountsPage extends ConsumerStatefulWidget {
+  const DriverBankAccountsPage({super.key});
+
+  @override
+  ConsumerState<DriverBankAccountsPage> createState() => _DriverBankAccountsPageState();
+}
+
+class _DriverBankAccountsPageState extends ConsumerState<DriverBankAccountsPage> {
+  late Future<List<dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<dynamic>> _load() async {
+    final payload = await ref.read(apiClientProvider).get('/banks');
+    return List<dynamic>.from(payload is Map ? payload['data'] as List? ?? const [] : const []);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Rekening Pencairan')),
+    body: FutureBuilder<List<dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return _ErrorCard(
+          message: 'Rekening belum dapat dimuat. Pastikan endpoint /banks sudah tersedia.',
+          onRetry: () async { setState(() => _future = _load()); },
+        );
+        final items = snapshot.data ?? const [];
+        if (items.isEmpty) return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFF147D58)),
+              SizedBox(height: 12),
+              Text('Belum ada rekening pencairan.', style: TextStyle(fontWeight: FontWeight.w800)),
+              SizedBox(height: 6),
+              Text('Pengelolaan rekening tetap mengikuti proses PWA sampai endpoint simpan mobile digunakan.', textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final item = Map<String, dynamic>.from(items[index] as Map);
+            final number = readableDriverValue(item['account_number'], fallback: '');
+            final digits = number.replaceAll(RegExp(r'[^0-9]'), '');
+            final masked = digits.length > 4 ? '•••• ${digits.substring(digits.length - 4)}' : number;
+            final isDefault = item['is_default']?.toString() == '1' || item['is_default'] == true;
+            return Card(child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFFE0F5EA), child: Icon(Icons.account_balance_outlined, color: Color(0xFF147D58))),
+              title: Text(readableDriverValue(item['bank_name'], fallback: 'Bank'), style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text('${readableDriverValue(item['account_name'], fallback: 'Pemilik rekening')}\n$masked'),
+              trailing: isDefault ? const Chip(label: Text('Utama')) : null,
+            ));
+          },
+        );
+      },
+    ),
+  );
 }
 
 class _OnlinePill extends StatelessWidget {
