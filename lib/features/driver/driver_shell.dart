@@ -60,6 +60,22 @@ String readableDriverValue(dynamic value, {String fallback = '-'}) {
   return text;
 }
 
+/// Road leg that matches the existing PWA/PHP delivery state machine.
+/// null means the driver should not be navigating to a road destination at this stage.
+String? driverNavigationLegForStatus(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'assigned':
+    case 'accepted':
+    case 'picking_up':
+      return 'pickup';
+    case 'picked_up':
+    case 'delivering':
+      return 'dropoff';
+    default:
+      return null;
+  }
+}
+
 class DriverJobView {
   const DriverJobView({
     required this.id,
@@ -1245,28 +1261,21 @@ class _DriverMapPageState extends State<DriverMapPage> {
   LatLng? get _activeDestination {
     final job = widget.job;
     if (job == null || job.isCompleted) return null;
-    switch (job.status.toLowerCase()) {
-      case 'assigned':
-      case 'accepted':
-      case 'picking_up':
+    switch (driverNavigationLegForStatus(job.status)) {
+      case 'pickup':
         return job.pickup;
-      case 'picked_up':
-      case 'delivering':
+      case 'dropoff':
         return job.dropoff;
       default:
-        // Mirrors public/assets/js/delivery-map.js: no active road route before
-        // assignment or after arrival/delivery/completion.
+        // No route before assignment or after arrival/delivery/completion.
         return null;
     }
   }
 
-  String get _destinationLabel {
-    final status = widget.job?.status.toLowerCase() ?? '';
-    if (const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(status)) {
-      return 'Pelanggan';
-    }
-    return 'Merchant';
-  }
+  String get _destinationLabel =>
+      driverNavigationLegForStatus(widget.job?.status ?? '') == 'dropoff'
+          ? 'Pelanggan'
+          : 'Merchant';
 
   @override
   void initState() {
@@ -1311,13 +1320,10 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   LatLng? _destinationFor(DriverJobView? job) {
     if (job == null || job.isCompleted) return null;
-    switch (job.status.toLowerCase()) {
-      case 'assigned':
-      case 'accepted':
-      case 'picking_up':
+    switch (driverNavigationLegForStatus(job.status)) {
+      case 'pickup':
         return job.pickup;
-      case 'picked_up':
-      case 'delivering':
+      case 'dropoff':
         return job.dropoff;
       default:
         return null;
@@ -2588,8 +2594,7 @@ Future<void> _openRoadNavigation(
   DriverJobView job, {
   LocationSnapshot? snapshot,
 }) async {
-  final status = job.status.toLowerCase();
-  final goingToCustomer = const ['picked_up', 'delivering'].contains(status);
+  final goingToCustomer = driverNavigationLegForStatus(job.status) == 'dropoff';
   final point = goingToCustomer ? job.dropoff : job.pickup;
   final address = goingToCustomer ? job.dropoffAddress : job.pickupAddress;
   final destination = point != null
