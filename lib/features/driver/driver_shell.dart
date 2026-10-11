@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/location/location_guard.dart';
@@ -271,7 +272,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       ),
       DriverMapPage(snapshot: _snapshot, job: _selectedJob),
       DriverHistory(jobs: _jobs),
-      const DriverProfile(),
+      DriverProfile(snapshot: _snapshot, onOpenMap: () => setState(() => _index = 2)),
     ];
 
     return Scaffold(
@@ -354,10 +355,14 @@ class DriverHome extends StatelessWidget {
         children: [
           Row(
             children: [
-              Image.asset(
-                'assets/branding/bersolek-mart-icon-512.png',
-                width: 42,
-                height: 42,
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD20A2E),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.delivery_dining_rounded, color: Colors.white, size: 29),
               ),
               const SizedBox(width: 10),
               const Expanded(
@@ -580,13 +585,6 @@ class _DriverMapPageState extends State<DriverMapPage> {
         : LatLng(position.latitude, position.longitude);
   }
 
-  List<LatLng> get _route {
-    final points = <LatLng>[_driverPoint];
-    if (widget.job?.pickup != null) points.add(widget.job!.pickup!);
-    if (widget.job?.dropoff != null) points.add(widget.job!.dropoff!);
-    return points.length > 1 ? points : const [];
-  }
-
   void _openFullscreen() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -604,8 +602,6 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   @override
   Widget build(BuildContext context) {
-    final route = _route;
-
     return Stack(
       children: [
         FlutterMap(
@@ -619,18 +615,6 @@ class _DriverMapPageState extends State<DriverMapPage> {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.bersolekmart.mobile',
             ),
-            if (route.length > 1)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: route,
-                    strokeWidth: 5,
-                    color: const Color(0xFFD20A2E),
-                    borderStrokeWidth: 2,
-                    borderColor: Colors.white,
-                  ),
-                ],
-              ),
             MarkerLayer(
               markers: [
                 Marker(
@@ -715,6 +699,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
                 child: _MapSheet(
                   job: widget.job,
                   gpsReady: widget.snapshot != null,
+                  onNavigate: widget.job == null
+                      ? null
+                      : () => _openRoadNavigation(context, widget.job!),
                 ),
               ),
             ),
@@ -1287,11 +1274,55 @@ class _RouteLine extends StatelessWidget {
   }
 }
 
+Future<void> _openRoadNavigation(BuildContext context, DriverJobView job) async {
+  final status = job.status.toLowerCase();
+  final isHeadingToCustomer = status.contains('picked') ||
+      status.contains('deliver') || status.contains('antar') ||
+      status.contains('arrived');
+  final point = isHeadingToCustomer ? job.dropoff : job.pickup;
+  final address = isHeadingToCustomer ? job.dropoffAddress : job.pickupAddress;
+  final destination = point != null
+      ? '${point.latitude},${point.longitude}'
+      : (address.trim().isEmpty || address == '-' ? '' : address.trim());
+
+  if (destination.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Alamat atau koordinat tujuan belum tersedia pada order ini.')),
+    );
+    return;
+  }
+
+  final uri = Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'destination': destination,
+    'travelmode': 'driving',
+  });
+  try {
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Navigasi tidak dapat dibuka. Periksa aplikasi peta atau browser.')),
+      );
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Navigasi gagal dibuka. Periksa koneksi dan aplikasi peta.')),
+      );
+    }
+  }
+}
+
 class _MapSheet extends StatelessWidget {
-  const _MapSheet({required this.job, required this.gpsReady});
+  const _MapSheet({
+    required this.job,
+    required this.gpsReady,
+    required this.onNavigate,
+  });
 
   final DriverJobView? job;
   final bool gpsReady;
+  final VoidCallback? onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -1363,9 +1394,9 @@ class _MapSheet extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: null,
+                onPressed: onNavigate,
                 icon: const Icon(Icons.navigation_rounded),
-                label: const Text('Navigasi jalan'),
+                label: const Text('Buka navigasi jalan'),
               ),
             ),
           ],
