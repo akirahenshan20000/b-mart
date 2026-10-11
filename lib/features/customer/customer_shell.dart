@@ -1870,6 +1870,46 @@ class CustomerBankAccountsPage extends ConsumerStatefulWidget {
 }
 
 class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsPage> {
+  Future<void> _editBank([Map<String, dynamic>? initial]) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _BankAccountEditorDialog(initialAccount: initial),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/banks/save', result);
+      if (mounted) {
+        setState(() => _future = _load());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rekening berhasil disimpan.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rekening gagal disimpan: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
+  Future<void> _deleteBank(Map<String, dynamic> account) async {
+    final id = int.tryParse(account['id']?.toString() ?? '');
+    if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus rekening?'),
+        content: Text('Rekening ${account['bank_name'] ?? ''} akan dihapus dari akun.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Hapus')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/banks/delete/$id', const <String, dynamic>{});
+      if (mounted) setState(() => _future = _load());
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rekening gagal dihapus: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
   late Future<List<dynamic>> _future;
 
   @override
@@ -1886,6 +1926,13 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Rekening')),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: () => _editBank(),
+      backgroundColor: const Color(0xFFD20A2E),
+      foregroundColor: Colors.white,
+      icon: const Icon(Icons.add_card_rounded),
+      label: const Text('Tambah rekening'),
+    ),
     body: FutureBuilder<List<dynamic>>(
       future: _future,
       builder: (context, snapshot) {
@@ -1906,7 +1953,7 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
                 SizedBox(height: 12),
                 Text('Belum ada rekening tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
                 SizedBox(height: 6),
-                Text('Pengelolaan rekening perlu endpoint API yang terhubung ke data PWA.', textAlign: TextAlign.center),
+                Text('Tambahkan rekening melalui formulir agar tersimpan di akun BersolekMart.', textAlign: TextAlign.center),
               ]),
             ),
           );
@@ -1924,14 +1971,99 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
             return Card(child: ListTile(
               leading: const CircleAvatar(backgroundColor: Color(0xFFFFE5E9), child: Icon(Icons.account_balance_outlined, color: Color(0xFFD20A2E))),
               title: Text(readableApiValue(account['bank_name'], fallback: 'Bank'), style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text('${readableApiValue(account['account_name'], fallback: 'Pemilik rekening')}\n$maskedNumber'),
-              trailing: isDefault ? const Chip(label: Text('Utama')) : null,
+              subtitle: Text('${readableApiValue(account['account_name'], fallback: 'Pemilik rekening')}\n$maskedNumber${isDefault ? '\\nRekening utama' : ''}'),
+              isThreeLine: true,
+              trailing: PopupMenuButton<String>(
+                onSelected: (choice) {
+                  if (choice == 'edit') _editBank(account);
+                  if (choice == 'delete') _deleteBank(account);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit rekening')),
+                  PopupMenuItem(value: 'delete', child: Text('Hapus rekening')),
+                ],
+              ),
             ));
           },
         );
       },
     ),
   );
+}
+
+
+class _BankAccountEditorDialog extends StatefulWidget {
+  const _BankAccountEditorDialog({this.initialAccount});
+  final Map<String, dynamic>? initialAccount;
+
+  @override
+  State<_BankAccountEditorDialog> createState() => _BankAccountEditorDialogState();
+}
+
+class _BankAccountEditorDialogState extends State<_BankAccountEditorDialog> {
+  late final TextEditingController _bank;
+  late final TextEditingController _name;
+  late final TextEditingController _number;
+  bool _default = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialAccount ?? const <String, dynamic>{};
+    _bank = TextEditingController(text: initial['bank_name']?.toString() ?? '');
+    _name = TextEditingController(text: initial['account_name']?.toString() ?? '');
+    _number = TextEditingController(text: initial['account_number']?.toString() ?? '');
+    _default = initial['is_default'] == true || initial['is_default']?.toString() == '1';
+  }
+
+  void _save() {
+    final digits = _number.text.replaceAll(RegExp(r'\D'), '');
+    if (_bank.text.trim().length < 2 || _name.text.trim().length < 2 || digits.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Isi nama bank, nama pemilik, dan nomor rekening yang valid.')));
+      return;
+    }
+    Navigator.of(context).pop(<String, dynamic>{
+      'id': widget.initialAccount?['id'] ?? 0,
+      'bank_name': _bank.text.trim(),
+      'account_name': _name.text.trim(),
+      'account_number': digits,
+      'is_default': _default ? 1 : 0,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.initialAccount == null ? 'Tambah rekening' : 'Edit rekening'),
+    content: SizedBox(
+      width: 420,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: _bank, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nama bank')),
+        const SizedBox(height: 10),
+        TextField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nama pemilik rekening')),
+        const SizedBox(height: 10),
+        TextField(controller: _number, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Nomor rekening', helperText: 'Nomor hanya dikirim ke API akun, ditampilkan tersamarkan.')),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _default,
+          onChanged: (value) => setState(() => _default = value ?? false),
+          title: const Text('Jadikan rekening utama'),
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ]),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Batal')),
+      FilledButton(onPressed: _save, child: const Text('Simpan rekening')),
+    ],
+  );
+
+  @override
+  void dispose() {
+    _bank.dispose();
+    _name.dispose();
+    _number.dispose();
+    super.dispose();
+  }
 }
 
 class _CustomerAccountDetailPage extends StatelessWidget {
