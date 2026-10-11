@@ -1,7 +1,49 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+
+/// Converts API values to readable UI text instead of exposing Map/List dumps.
+String readableApiValue(dynamic value, {String fallback = '-'}) {
+  if (value == null) return fallback;
+  if (value is Map) {
+    for (final key in const [
+      'address_line', 'full_address', 'formatted_address', 'address',
+      'label', 'name', 'full_name', 'recipient_name', 'title',
+      'status_label', 'status_name', 'status', 'value', 'text',
+      'phone', 'email',
+    ]) {
+      final candidate = value[key];
+      if (candidate != null && candidate is! Map && candidate is! List) {
+        final text = candidate.toString().trim();
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return fallback;
+  }
+  if (value is List) {
+    final parts = value
+        .map((item) => readableApiValue(item, fallback: ''))
+        .where((item) => item.isNotEmpty)
+        .toList();
+    return parts.isEmpty ? fallback : parts.join(', ');
+  }
+  final text = value.toString().trim();
+  if (text.isEmpty) return fallback;
+  if ((text.startsWith('{') && text.endsWith('}')) ||
+      (text.startsWith('[') && text.endsWith(']'))) {
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map || decoded is List) {
+        return readableApiValue(decoded, fallback: fallback);
+      }
+    } catch (_) {
+      return fallback;
+    }
+  }
+  return text;
+}
 
 String formatRupiah(dynamic raw) {
   final value = raw is num ? raw.round() : int.tryParse(raw?.toString() ?? '') ?? double.tryParse(raw?.toString() ?? '')?.round() ?? 0;
@@ -269,13 +311,13 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text((product['name'] ?? 'Produk').toString(), maxLines: 2, overflow: TextOverflow.ellipsis,
+                                  Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
                                   const SizedBox(height: 7),
                                   Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
                                   const SizedBox(height: 5),
-                                  Text((product['store_name'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 11, color: Colors.black54)),
                                 ],
                               ),
@@ -403,13 +445,13 @@ void _showProduct(BuildContext context, Map<String, dynamic> product, String api
                 child: ProductImageView(path: (product['image'] ?? '').toString(), apiBase: apiBase)),
             ),
             const SizedBox(height: 16),
-            Text((product['name'] ?? 'Produk').toString(), style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+            Text(readableApiValue(product['name'], fallback: 'Produk'), style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
             Text(formatRupiah(price), style: const TextStyle(fontSize: 22, color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
-            Text((product['store_name'] ?? 'UMKM Lokal').toString(), style: const TextStyle(color: Colors.black54)),
+            Text(readableApiValue(product['store_name'], fallback: 'UMKM Lokal'), style: const TextStyle(color: Colors.black54)),
             const SizedBox(height: 14),
-            Text((product['description'] ?? 'Informasi produk belum tersedia.').toString(), style: const TextStyle(height: 1.45)),
+            Text(readableApiValue(product['description'], fallback: 'Informasi produk belum tersedia.'), style: const TextStyle(height: 1.45)),
             const SizedBox(height: 12),
             Text('Stok tersedia: ${product['stock'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 18),
@@ -538,13 +580,13 @@ class CustomerProfile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(authControllerProvider).asData?.value;
     final user = session?.user ?? const <String, dynamic>{};
-    final name = user['full_name']?.toString() ?? 'Pengguna BersolekMart';
+    final name = readableApiValue(user['full_name'], fallback: 'Pengguna BersolekMart');
     return ListView(padding: const EdgeInsets.all(22), children: [
       const SizedBox(height: 12),
       Center(child: Image.asset('assets/branding/bersolek-mart-icon-512.png', width: 100, height: 100)),
       const SizedBox(height: 14),
       Center(child: Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
-      Center(child: Text('${user['email'] ?? user['phone'] ?? '-'}', style: const TextStyle(color: Colors.black54))),
+      Center(child: Text(readableApiValue(user['email'] ?? user['phone']), style: const TextStyle(color: Colors.black54))),
       const SizedBox(height: 26),
       Card(child: ListTile(leading: const Icon(Icons.person_outline), title: const Text('Profil Saya'), trailing: const Icon(Icons.chevron_right))),
       const SizedBox(height: 8),
