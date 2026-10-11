@@ -25,7 +25,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _login.text,
       _password.text,
       'BersolekMart Android',
-      widget.expectedRole: widget.expectedRole,
+      expectedRole: widget.expectedRole,
     );
   }
 
