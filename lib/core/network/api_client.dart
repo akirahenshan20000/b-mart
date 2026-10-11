@@ -101,7 +101,12 @@ class ApiClient {
     }
   }
 
-  void _debugResponse(String method, Uri uri, http.Response response) {
+  void _debugResponse(
+    String method,
+    Uri uri,
+    http.Response response, {
+    Duration? elapsed,
+  }) {
     if (!kDebugMode) return;
     dynamic decoded;
     try {
@@ -129,6 +134,7 @@ class ApiClient {
     // Never log authorization headers, payload values, or personal data.
     debugPrint(
       '[BersolekMart API] $method ${uri.path} -> HTTP ${response.statusCode}; '
+      'elapsed=${elapsed?.inMilliseconds ?? -1}ms; '
       'bytes=${response.bodyBytes.length}; $shape',
     );
   }
@@ -150,8 +156,10 @@ class ApiClient {
   Future<dynamic> get(String path, {Map<String, String>? query, bool auth = true}) async {
     final uri = Uri.parse('${await baseUrl()}$path').replace(queryParameters: query);
     final headers = await _headers(auth: auth);
+    final stopwatch = Stopwatch()..start();
     final response = await _send(() => http.get(uri, headers: headers));
-    _debugResponse('GET', uri, response);
+    stopwatch.stop();
+    _debugResponse('GET', uri, response, elapsed: stopwatch.elapsed);
     return _parse(response);
   }
 
@@ -159,10 +167,12 @@ class ApiClient {
     final uri = Uri.parse('${await baseUrl()}$path');
     final headers = await _headers(jsonBody: true, auth: auth);
     final encodedBody = jsonEncode(body);
+    final stopwatch = Stopwatch()..start();
     final response = await _send(
       () => http.post(uri, headers: headers, body: encodedBody),
     );
-    _debugResponse('POST', uri, response);
+    stopwatch.stop();
+    _debugResponse('POST', uri, response, elapsed: stopwatch.elapsed);
     return _parse(response);
   }
 
@@ -190,11 +200,13 @@ class ApiClient {
       request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
     }
 
+    final stopwatch = Stopwatch()..start();
     final response = await _send(() async {
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
     });
-    _debugResponse('POST MULTIPART', uri, response);
+    stopwatch.stop();
+    _debugResponse('POST MULTIPART', uri, response, elapsed: stopwatch.elapsed);
     return _parse(response);
   }
 
