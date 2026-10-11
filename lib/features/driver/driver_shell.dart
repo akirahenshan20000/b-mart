@@ -1841,7 +1841,7 @@ class _FullscreenRouteCard extends StatelessWidget {
               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD20A2E)),
             ),
           ),
-          if (routeReady && onNavigate != null)
+          if (onNavigate != null)
             Align(
               alignment: Alignment.center,
               child: TextButton.icon(
@@ -2800,7 +2800,7 @@ class _MapSheet extends StatelessWidget {
                 label: const Text('Ikuti GPS di peta ini'),
               ),
             ),
-            if (routeReady && onNavigate != null)
+            if (onNavigate != null)
               Center(
                 child: TextButton.icon(
                   onPressed: onNavigate,
