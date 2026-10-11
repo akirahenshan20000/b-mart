@@ -761,7 +761,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
   int get _stage {
     switch (_job.status.toLowerCase()) {
       case 'available': return 0;
-      case 'assigned':
+      case 'assigned': return _job.availableToAccept ? 0 : 1;
       case 'accepted': return 1;
       case 'picking_up':
       case 'picked_up': return 2;
