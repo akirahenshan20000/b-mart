@@ -149,7 +149,10 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         _selectedCategory = category;
         _index = 0;
       })),
-      CustomerCart(key: ValueKey('cart-$_cartRevision')),
+      CustomerCart(
+        key: ValueKey('cart-$_cartRevision'),
+        onContinueShopping: () => setState(() => _index = 0),
+      ),
       const CustomerOrders(),
       const CustomerProfile(),
     ];
@@ -944,7 +947,9 @@ class _CustomerProductDetailPageState extends State<_CustomerProductDetailPage> 
 }
 
 class CustomerCart extends ConsumerStatefulWidget {
-  const CustomerCart({super.key});
+  const CustomerCart({super.key, required this.onContinueShopping});
+
+  final VoidCallback onContinueShopping;
 
   @override
   ConsumerState<CustomerCart> createState() => _CustomerCartState();
@@ -1011,16 +1016,43 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
         final items = List<dynamic>.from(data['items'] as List? ?? const []);
         final apiBase = data['apiBase']?.toString() ?? '';
         if (items.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.shopping_basket_outlined, size: 56, color: Color(0xFFD20A2E)),
-                SizedBox(height: 12),
-                Text('Keranjang masih kosong', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                SizedBox(height: 6),
-                Text('Pilih produk lokal lalu tekan Tambah ke Keranjang.', textAlign: TextAlign.center),
-              ]),
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 310),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 92,
+                      height: 92,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE7EB),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: const Icon(Icons.shopping_basket_outlined, size: 44, color: Color(0xFFD20A2E)),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text('Keranjang masih kosong',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 21)),
+                    const SizedBox(height: 8),
+                    const Text('Temukan produk UMKM favoritmu dan tambahkan ke keranjang sebelum checkout.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black54, height: 1.45)),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: widget.onContinueShopping,
+                        icon: const Icon(Icons.storefront_rounded),
+                        label: const Text('Mulai belanja'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           );
         }
