@@ -106,7 +106,8 @@ class DriverJobView {
 
   bool get isNew {
     final value = status.toLowerCase();
-    return availableToAccept || value == 'available';
+    if (isCompleted) return false;
+    return value == 'available' || (value == 'assigned' && availableToAccept);
   }
 
   String get statusLabel {
@@ -138,7 +139,9 @@ class DriverJobView {
     id: id,
     code: code,
     status: nextStatus,
-    availableToAccept: availableToAccept,
+    availableToAccept: nextStatus == 'available' || nextStatus == 'assigned'
+        ? availableToAccept
+        : false,
     storeName: storeName,
     customerName: customerName,
     pickupAddress: pickupAddress,
@@ -1276,8 +1279,13 @@ class _DriverMapPageState extends State<DriverMapPage> {
     final snapshot = widget.snapshot;
     final position = snapshot?.position;
     if (position == null || snapshot!.mocked) {
-      if (_routePoints.isEmpty && mounted && _routeError != 'Aktifkan GPS untuk menghitung rute dari posisi Anda.') {
-        setState(() => _routeError = 'Aktifkan GPS untuk menghitung rute dari posisi Anda.');
+      if (mounted) {
+        setState(() {
+          _routeLoading = false;
+          _routeError = _routePoints.isEmpty
+              ? 'Aktifkan GPS untuk menghitung rute dari posisi Anda.'
+              : 'GPS tidak valid; rute terakhir masih ditampilkan.';
+        });
       }
       return;
     }
@@ -2635,12 +2643,20 @@ class _MapSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            if (routeReady)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'Estimasi jarak/waktu dari routing jalan; belum memakai data lalu lintas real-time.',
+                  style: TextStyle(color: Colors.black45, fontSize: 10, height: 1.35),
+                ),
+              ),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: onNavigate,
                 icon: const Icon(Icons.navigation_rounded),
-                label: const Text('Navigasi turn-by-turn'),
+                label: const Text('Buka navigasi turn-by-turn'),
               ),
             ),
           ],
