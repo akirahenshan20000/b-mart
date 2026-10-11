@@ -41,16 +41,11 @@ class WelcomeSplashScreen extends ConsumerWidget {
                   errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
                 ),
                 const SizedBox(height: 22),
-                const Text(
-                  'BersolekMart',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
-                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Marketplace Lokal, Peluang Tanpa Batas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 15, color: Colors.white70),
+                  style: TextStyle(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 SizedBox(
