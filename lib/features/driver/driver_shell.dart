@@ -218,13 +218,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       return LatLng(lat, lng);
     }
 
-    num? money = job['driver_fee'] is num
-        ? job['driver_fee'] as num
-        : job['fee'] is num
-            ? job['fee'] as num
-            : job['shipping_fee'] is num
-                ? job['shipping_fee'] as num
-                : null;
+    final money = number(const ['driver_fee', 'fee', 'shipping_fee']);
 
     return DriverJobView(
       id: (job['id'] ?? job['job_id'] ?? '').toString(),
@@ -620,7 +614,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
   LatLng get _driverPoint {
     final position = widget.snapshot?.position;
     return position == null
-        ? _fallback
+        ? (widget.job?.pickup ?? widget.job?.dropoff ?? _fallback)
         : LatLng(position.latitude, position.longitude);
   }
 
@@ -656,15 +650,16 @@ class _DriverMapPageState extends State<DriverMapPage> {
             ),
             MarkerLayer(
               markers: [
-                Marker(
-                  point: _driverPoint,
-                  width: 50,
-                  height: 50,
-                  child: const _MapMarker(
-                    icon: Icons.navigation_rounded,
-                    color: Color(0xFF171113),
+                if (widget.snapshot?.position != null)
+                  Marker(
+                    point: _driverPoint,
+                    width: 50,
+                    height: 50,
+                    child: const _MapMarker(
+                      icon: Icons.navigation_rounded,
+                      color: Color(0xFF171113),
+                    ),
                   ),
-                ),
                 if (widget.job?.pickup != null)
                   Marker(
                     point: widget.job!.pickup!,
