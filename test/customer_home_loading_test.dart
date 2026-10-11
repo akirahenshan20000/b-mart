@@ -58,7 +58,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiClientProvider.overrideWith((ref) => api)],
-          child: const MaterialApp(home: CustomerHome()),
+          child: const MaterialApp(home: Scaffold(body: CustomerHome())),
         ),
       );
 
