@@ -166,6 +166,38 @@ class ApiClient {
     return _parse(response);
   }
 
+  /// Sends a Bearer-authenticated multipart request for backend-owned uploads
+  /// such as the existing delivery proof photo field.
+  Future<dynamic> postMultipart(
+    String path, {
+    Map<String, String> fields = const <String, String>{},
+    String? filePath,
+    String fileField = 'proof_photo',
+    bool auth = true,
+  }) async {
+    final uri = Uri.parse('${await baseUrl()}$path');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Accept'] = 'application/json'
+      ..fields.addAll(fields);
+
+    if (auth) {
+      final token = await _store.readToken();
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+    }
+    if (filePath != null && filePath.trim().isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
+    }
+
+    final response = await _send(() async {
+      final streamed = await request.send();
+      return http.Response.fromStream(streamed);
+    });
+    _debugResponse('POST MULTIPART', uri, response);
+    return _parse(response);
+  }
+
   dynamic _parse(http.Response response) {
     dynamic decoded;
     try {

@@ -202,15 +202,20 @@ class CustomerHome extends ConsumerStatefulWidget {
 }
 
 class _CustomerHomeState extends ConsumerState<CustomerHome> {
-  late Future<Map<String, dynamic>> _future;
+  // Keep optional CMS/category calls independent from the primary product request.
+  late Future<List<dynamic>> _future;
   final _search = TextEditingController();
   String? _category;
+  List<dynamic> _categories = const [];
+  List<dynamic> _heroSlides = const [];
+  String _apiBase = ApiClient.defaultBaseUrl;
 
   @override
   void initState() {
     super.initState();
     _category = widget.initialCategory;
-    _future = _load();
+    _future = _loadProducts();
+    _loadOptionalContent();
   }
 
   @override
@@ -218,7 +223,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialCategory != widget.initialCategory) {
       _category = widget.initialCategory;
-      _future = _load();
+      _future = _loadProducts();
     }
   }
 
@@ -242,114 +247,100 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     }
   }
 
-  Future<Map<String, dynamic>> _load() async {
+  Future<List<dynamic>> _loadProducts() async {
     final api = ref.read(apiClientProvider);
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
 
-    Future<dynamic> loadCategories() async {
-      try {
-        return await api.get('/catalog/categories');
-      } catch (error) {
-        if (kDebugMode) {
-          final detail = error is ApiException
-              ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
-              : error.runtimeType.toString();
-          debugPrint('[BersolekMart Catalog] categories unavailable ($detail).');
-        }
-        // Categories are supplementary; a category failure must not hide products.
-        return null;
-      }
-    }
-
-    Future<dynamic> loadCmsHome() async {
-      try {
-        return await api.get('/cms/home');
-      } catch (error) {
-        if (kDebugMode) {
-          final detail = error is ApiException
-              ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
-              : error.runtimeType.toString();
-          debugPrint('[BersolekMart Catalog] CMS unavailable ($detail).');
-        }
-        // CMS banner loading is optional; it must not make a working catalog disappear.
-        return null;
-      }
-    }
-
-    late final List<dynamic> results;
     try {
-      results = await Future.wait<dynamic>([
-        api.get('/catalog/products', query: query),
-        loadCategories(),
-        api.baseUrl(),
-        loadCmsHome(),
-      ]);
+      final payload = await api.get('/catalog/products', query: query);
+      final products = catalogProductsFromPayload(payload);
+      if (kDebugMode) {
+        debugPrint('[BersolekMart Catalog] products loaded=${products.length}; query=${query.keys.join(',')}.');
+      }
+      return products;
     } catch (error) {
       if (kDebugMode) {
         final detail = error is ApiException
             ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
             : error.runtimeType.toString();
-        debugPrint('[BersolekMart Catalog] products request failed ($detail).');
+        debugPrint('[BersolekMart Catalog] products request/payload failed ($detail).');
       }
       rethrow;
     }
-
-    late final List<dynamic> products;
-    try {
-      products = catalogProductsFromPayload(results[0]);
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('[BersolekMart Catalog] product payload rejected (${error.runtimeType}).');
-      }
-      rethrow;
-    }
-
-    List<dynamic> categories = const [];
-    if (results[1] != null) {
-      try {
-        categories = catalogCategoriesFromPayload(results[1]);
-      } catch (error) {
-        if (kDebugMode) {
-          debugPrint('[BersolekMart Catalog] category payload rejected (${error.runtimeType}).');
-        }
-      }
-    }
-
-    final cmsPayload = results[3];
-    final cms = cmsPayload is Map && cmsPayload['data'] is Map
-        ? Map<String, dynamic>.from(cmsPayload['data'] as Map)
-        : <String, dynamic>{};
-    final slides = cms['hero_slides'] is List
-        ? List<dynamic>.from(cms['hero_slides'] as List)
-        : cms['hero'] is Map
-            ? <dynamic>[cms['hero']]
-            : <dynamic>[];
-
-    if (kDebugMode) {
-      debugPrint('[BersolekMart Catalog] loaded products=${products.length}, categories=${categories.length}, heroSlides=${slides.length}, filtered=${query.keys.where((key) => key != 'limit').join(',')}');
-    }
-
-    return {
-      'products': products,
-      'categories': categories,
-      'apiBase': results[2] as String,
-      'heroSlides': slides,
-    };
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _loadOptionalContent() {
+    final api = ref.read(apiClientProvider);
+    unawaited(_loadApiBase(api));
+    unawaited(_loadCategories(api));
+    unawaited(_loadCmsHome(api));
+  }
+
+  Future<void> _loadApiBase(ApiClient api) async {
+    try {
+      final base = await api.baseUrl();
+      if (mounted && base != _apiBase) setState(() => _apiBase = base);
+    } catch (error) {
+      if (kDebugMode) debugPrint('[BersolekMart Catalog] API base URL unavailable (${error.runtimeType}).');
+    }
+  }
+
+  Future<void> _loadCategories(ApiClient api) async {
+    try {
+      final payload = await api.get('/catalog/categories');
+      final categories = catalogCategoriesFromPayload(payload);
+      if (mounted) setState(() => _categories = categories);
+      if (kDebugMode) debugPrint('[BersolekMart Catalog] categories loaded=${categories.length}.');
+    } catch (error) {
+      if (kDebugMode) {
+        final detail = error is ApiException
+            ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
+            : error.runtimeType.toString();
+        debugPrint('[BersolekMart Catalog] categories unavailable ($detail).');
+      }
+      // Category failure is supplementary and must not hide the product list.
+    }
+  }
+
+  Future<void> _loadCmsHome(ApiClient api) async {
+    try {
+      final payload = await api.get('/cms/home');
+      final cms = payload is Map && payload['data'] is Map
+          ? Map<String, dynamic>.from(payload['data'] as Map)
+          : <String, dynamic>{};
+      final slides = cms['hero_slides'] is List
+          ? List<dynamic>.from(cms['hero_slides'] as List)
+          : cms['hero'] is Map
+              ? <dynamic>[cms['hero']]
+              : <dynamic>[];
+      if (mounted) setState(() => _heroSlides = slides);
+      if (kDebugMode) debugPrint('[BersolekMart Catalog] CMS hero slides=${slides.length}.');
+    } catch (error) {
+      if (kDebugMode) {
+        final detail = error is ApiException
+            ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
+            : error.runtimeType.toString();
+        debugPrint('[BersolekMart Catalog] CMS unavailable ($detail).');
+      }
+      // CMS banners are optional and never block the product list.
+    }
+  }
+
+  void _reload() {
+    setState(() => _future = _loadProducts());
+    _loadOptionalContent();
+  }
 
   Future<void> _refresh() async {
-    final next = _load();
+    final next = _loadProducts();
     setState(() => _future = next);
-    // FutureBuilder renders the error panel on failure; keep RefreshIndicator from
-    // completing before the underlying catalog request has finished.
+    _loadOptionalContent();
     try {
       await next;
     } catch (_) {
-      // The visible state is handled by FutureBuilder.
+      // FutureBuilder presents the error/retry state.
     }
   }
 
@@ -357,7 +348,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: FutureBuilder<Map<String, dynamic>>(
+      child: FutureBuilder<List<dynamic>>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -371,17 +362,16 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
             );
           }
 
-          final data = snapshot.data ?? const <String, dynamic>{};
-          final items = List<dynamic>.from(data['products'] as List? ?? const []);
-          final categories = List<dynamic>.from(data['categories'] as List? ?? const []);
-          final apiBase = data['apiBase']?.toString() ?? '';
+          final items = snapshot.data ?? const <dynamic>[];
+          final categories = _categories;
+          final apiBase = _apiBase;
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               _CmsHeroCarousel(
-                slides: List<dynamic>.from(data['heroSlides'] as List? ?? const []),
+                slides: _heroSlides,
                 apiBase: apiBase,
               ),
               const SizedBox(height: 16),
