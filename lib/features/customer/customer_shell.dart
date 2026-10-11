@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 import '../account/account_profile_edit_page.dart';
 import '../account/member_data_pages.dart';
 import 'checkout_page.dart';
@@ -90,6 +91,22 @@ List<dynamic> catalogCategoriesFromPayload(dynamic payload) {
     throw const FormatException('Item kategori tidak sesuai format API.');
   }
   return List<dynamic>.from(data);
+}
+
+String catalogErrorMessage(Object error) {
+  if (error is ApiException) {
+    final code = (error.code ?? '').toUpperCase();
+    if (code == 'NETWORK_ERROR') return 'Server katalog tidak dapat dijangkau. Periksa koneksi internet lalu coba lagi.';
+    if (code == 'REQUEST_TIMEOUT') return 'Server katalog merespons terlalu lama. Coba muat ulang.';
+    if (code == 'API_DISABLED') return 'Layanan katalog sedang dinonaktifkan. Coba lagi nanti.';
+    if (error.statusCode == 404) return 'Endpoint katalog tidak ditemukan pada server. Hubungi pengelola aplikasi.';
+    if (error.statusCode == 401 || error.statusCode == 403) return 'Server menolak permintaan katalog. Periksa konfigurasi akses API.';
+    if (error.statusCode >= 500) return 'Server katalog sedang mengalami kendala. Coba lagi nanti.';
+  }
+  if (error is FormatException) {
+    return 'Respons katalog dari server tidak sesuai format yang diharapkan. Muat ulang atau hubungi pengelola.';
+  }
+  return 'Katalog belum dapat dimuat. Periksa koneksi lalu coba lagi.';
 }
 
 String resolveMediaUrl(String raw, String apiBase) {
@@ -228,10 +245,17 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
+
     Future<dynamic> loadCategories() async {
       try {
         return await api.get('/catalog/categories');
-      } catch (_) {
+      } catch (error) {
+        if (kDebugMode) {
+          final detail = error is ApiException
+              ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
+              : error.runtimeType.toString();
+          debugPrint('[BersolekMart Catalog] categories unavailable ($detail).');
+        }
         // Categories are supplementary; a category failure must not hide products.
         return null;
       }
@@ -240,27 +264,57 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     Future<dynamic> loadCmsHome() async {
       try {
         return await api.get('/cms/home');
-      } catch (_) {
+      } catch (error) {
+        if (kDebugMode) {
+          final detail = error is ApiException
+              ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
+              : error.runtimeType.toString();
+          debugPrint('[BersolekMart Catalog] CMS unavailable ($detail).');
+        }
         // CMS banner loading is optional; it must not make a working catalog disappear.
         return null;
       }
     }
 
-    final results = await Future.wait([
-      api.get('/catalog/products', query: query),
-      loadCategories(),
-      api.baseUrl(),
-      loadCmsHome(),
-    ]);
-    final products = catalogProductsFromPayload(results[0]);
+    late final List<dynamic> results;
+    try {
+      results = await Future.wait<dynamic>([
+        api.get('/catalog/products', query: query),
+        loadCategories(),
+        api.baseUrl(),
+        loadCmsHome(),
+      ]);
+    } catch (error) {
+      if (kDebugMode) {
+        final detail = error is ApiException
+            ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
+            : error.runtimeType.toString();
+        debugPrint('[BersolekMart Catalog] products request failed ($detail).');
+      }
+      rethrow;
+    }
+
+    late final List<dynamic> products;
+    try {
+      products = catalogProductsFromPayload(results[0]);
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[BersolekMart Catalog] product payload rejected (${error.runtimeType}).');
+      }
+      rethrow;
+    }
+
     List<dynamic> categories = const [];
     if (results[1] != null) {
       try {
         categories = catalogCategoriesFromPayload(results[1]);
       } catch (error) {
-        debugPrint('[BersolekMart Catalog] category payload rejected: ${error.runtimeType}');
+        if (kDebugMode) {
+          debugPrint('[BersolekMart Catalog] category payload rejected (${error.runtimeType}).');
+        }
       }
     }
+
     final cmsPayload = results[3];
     final cms = cmsPayload is Map && cmsPayload['data'] is Map
         ? Map<String, dynamic>.from(cmsPayload['data'] as Map)
@@ -270,6 +324,10 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
         : cms['hero'] is Map
             ? <dynamic>[cms['hero']]
             : <dynamic>[];
+
+    if (kDebugMode) {
+      debugPrint('[BersolekMart Catalog] loaded products=${products.length}, categories=${categories.length}, heroSlides=${slides.length}, filtered=${query.keys.where((key) => key != 'limit').join(',')}');
+    }
 
     return {
       'products': products,
@@ -281,10 +339,22 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   void _reload() => setState(() => _future = _load());
 
+  Future<void> _refresh() async {
+    final next = _load();
+    setState(() => _future = next);
+    // FutureBuilder renders the error panel on failure; keep RefreshIndicator from
+    // completing before the underlying catalog request has finished.
+    try {
+      await next;
+    } catch (_) {
+      // The visible state is handled by FutureBuilder.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: () async => _reload(),
+      onRefresh: _refresh,
       child: FutureBuilder<Map<String, dynamic>>(
         future: _future,
         builder: (context, snapshot) {
@@ -292,7 +362,11 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return _ErrorPanel(message: 'Katalog belum dapat dimuat. Periksa koneksi lalu coba lagi.', onRetry: _reload);
+            final error = snapshot.error!;
+            return _ErrorPanel(
+              message: catalogErrorMessage(error),
+              onRetry: _reload,
+            );
           }
 
           final data = snapshot.data ?? const <String, dynamic>{};
@@ -368,14 +442,42 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
               ]),
               const SizedBox(height: 12),
               if (items.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 38),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 8),
                   child: Column(children: [
-                    Icon(Icons.inventory_2_outlined, size: 54, color: Color(0xFFB5AEB0)),
-                    SizedBox(height: 10),
-                    Text('Belum ada produk aktif untuk pilihan ini.', style: TextStyle(fontWeight: FontWeight.w800)),
-                    SizedBox(height: 4),
-                    Text('Server mengembalikan katalog kosong. Coba kata kunci atau kategori lain.', style: TextStyle(color: Colors.black54)),
+                    const Icon(Icons.inventory_2_outlined, size: 54, color: Color(0xFFB5AEB0)),
+                    const SizedBox(height: 10),
+                    Text(
+                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
+                          ? 'Tidak ada produk untuk filter ini.'
+                          : 'Belum ada produk aktif dari server.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
+                          ? 'Hapus pencarian atau pilih kategori lain untuk melihat hasil berbeda.'
+                          : 'Katalog berhasil dimuat, tetapi server tidak mengembalikan produk aktif.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.black54, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      onPressed: (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
+                          ? () {
+                              _search.clear();
+                              _category = null;
+                              _reload();
+                            }
+                          : _reload,
+                      icon: Icon((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
+                          ? Icons.filter_alt_off_rounded
+                          : Icons.refresh_rounded),
+                      label: Text((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
+                          ? 'Hapus filter'
+                          : 'Muat ulang katalog'),
+                    ),
                   ]),
                 )
               else
@@ -445,14 +547,24 @@ class ProductImageView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final url = resolveMediaUrl(path, apiBase);
-    if (url.isEmpty || url.toLowerCase().split('?').first.endsWith('.svg')) {
+    final pathOnly = Uri.tryParse(url)?.path.toLowerCase() ?? '';
+    if (url.isEmpty || pathOnly.split('?').first.endsWith('.svg')) {
+      if (kDebugMode && pathOnly.endsWith('.svg')) {
+        debugPrint('[BersolekMart Image] SVG image is not natively supported by this widget; using fallback.');
+      }
       return const _ImageFallback();
     }
     return Image.network(
       url,
       fit: BoxFit.cover,
       width: double.infinity,
-      errorBuilder: (_, _, _) => const _ImageFallback(),
+      errorBuilder: (_, error, _) {
+        if (kDebugMode) {
+          final uri = Uri.tryParse(url);
+          debugPrint('[BersolekMart Image] ${uri?.host ?? '-'}${uri?.path ?? '-'} failed (${error.runtimeType}).');
+        }
+        return const _ImageFallback();
+      },
       loadingBuilder: (context, child, progress) => progress == null
           ? child
           : const _ImageFallback(loading: true),

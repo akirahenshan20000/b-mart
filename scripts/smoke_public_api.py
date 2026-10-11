@@ -12,6 +12,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urljoin, urlsplit
 
 BASE = os.environ.get("BERSOLEKMART_BASE_URL", "https://bersolekmart.com").rstrip("/")
 HEADERS = {
@@ -27,7 +28,8 @@ def request(path: str, method: str = "GET", payload: dict | None = None, timeout
     if payload is not None:
         headers["Content-Type"] = "application/json"
         body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(BASE + path, data=body, headers=headers, method=method)
+    target_url = path if path.startswith(("https://", "http://")) else BASE + path
+    req = urllib.request.Request(target_url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status, response.headers.get("Content-Type", ""), response.read(1024 * 1024)
@@ -94,19 +96,42 @@ def main() -> int:
         print(f"[PWA smoke] CMS hero slides: {len(slides)}")
         # Zero slides is a valid CMS state; the app must not invent a banner.
 
-    status, content_type, body = request("/api/v1/catalog/products?limit=1")
-    report("catalog products", "GET", "/api/v1/catalog/products?limit=1", status, content_type, "public-json")
+    product_path = "/api/v1/catalog/products?limit=24"
+    status, content_type, body = request(product_path)
+    report("catalog products", "GET", product_path, status, content_type, "public-json")
     products = require_api_envelope(parse_json(body, "catalog products"), "catalog products", list) if status == 200 else None
     if isinstance(products, list):
-        print(f"[PWA smoke] Active products returned for limit=1: {len(products)}")
-        if products:
-            product = products[0]
+        print(f"[PWA smoke] Active products returned for limit=24: {len(products)}")
+        raster_image_url = None
+        svg_fallbacks = 0
+        for product in products:
             if not isinstance(product, dict) or any(k not in product for k in ("id", "name", "price", "image")):
                 FAILURES.append("catalog product item is missing id/name/price/image contract fields")
-            elif str(product.get("status", "active")).lower() != "active":
+                continue
+            if str(product.get("status", "active")).lower() != "active":
                 FAILURES.append("catalog API returned a non-active product")
-            else:
-                print(f"[PWA smoke] Product payload fields validated: {', '.join(sorted(product.keys()))}")
+            image_path = str(product.get("image") or "").strip()
+            if not image_path:
+                continue
+            parsed_image = urlsplit(image_path)
+            if parsed_image.path.lower().endswith(".svg"):
+                svg_fallbacks += 1
+                continue
+            if parsed_image.scheme in ("http", "https"):
+                raster_image_url = image_path
+                break
+            if not parsed_image.scheme:
+                raster_image_url = urljoin(BASE.rstrip("/") + "/", image_path)
+                break
+        print(f"[PWA smoke] Products using SVG fallback: {svg_fallbacks}")
+        if raster_image_url:
+            image_status, image_type, image_body = request(raster_image_url)
+            image_path_only = urlsplit(raster_image_url).path
+            print(f"[PWA smoke] Product image: GET {image_path_only} -> HTTP {image_status or 'NETWORK ERROR'}; content-type={image_type or '-'}; bytes={len(image_body)}")
+            if image_status != 200 or not image_type.lower().startswith("image/"):
+                FAILURES.append(f"product image {image_path_only}: expected HTTP 200 image/*, got {image_status} ({image_type})")
+        elif products:
+            print("[PWA smoke] No raster product image URL found in active products; catalog items may use the documented SVG fallback or have no uploaded photos.")
 
     status, content_type, body = request("/api/v1/catalog/categories")
     report("catalog categories", "GET", "/api/v1/catalog/categories", status, content_type, "public-json")
