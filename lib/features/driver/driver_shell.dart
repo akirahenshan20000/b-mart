@@ -1,3 +1,4 @@
+import 'dart:convert';
 
 import 'dart:async';
 
@@ -8,6 +9,47 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/location/location_guard.dart';
+
+/// Converts structured API fields to human-readable text for driver screens.
+String readableDriverValue(dynamic value, {String fallback = '-'}) {
+  if (value == null) return fallback;
+  if (value is Map) {
+    for (final key in const [
+      'address_line', 'full_address', 'formatted_address', 'address',
+      'label', 'name', 'full_name', 'recipient_name', 'title',
+      'status_label', 'status_name', 'status', 'value', 'text',
+      'phone', 'email',
+    ]) {
+      final candidate = value[key];
+      if (candidate != null && candidate is! Map && candidate is! List) {
+        final text = candidate.toString().trim();
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return fallback;
+  }
+  if (value is List) {
+    final parts = value
+        .map((item) => readableDriverValue(item, fallback: ''))
+        .where((item) => item.isNotEmpty)
+        .toList();
+    return parts.isEmpty ? fallback : parts.join(', ');
+  }
+  final text = value.toString().trim();
+  if (text.isEmpty) return fallback;
+  if ((text.startsWith('{') && text.endsWith('}')) ||
+      (text.startsWith('[') && text.endsWith(']'))) {
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map || decoded is List) {
+        return readableDriverValue(decoded, fallback: fallback);
+      }
+    } catch (_) {
+      return fallback;
+    }
+  }
+  return text;
+}
 
 class DriverJobView {
   const DriverJobView({
@@ -112,7 +154,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error = 'Pesanan gagal dimuat. Periksa koneksi lalu coba lagi.';
       });
     }
   }
@@ -147,11 +189,11 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     return DriverJobView(
       id: (job['id'] ?? job['job_id'] ?? '').toString(),
       code: (job['order_code'] ?? job['code'] ?? job['order_number'] ?? 'Order').toString(),
-      status: (job['status'] ?? job['state'] ?? 'Menunggu').toString(),
-      storeName: (job['store_name'] ?? job['merchant_name'] ?? 'Merchant').toString(),
-      customerName: (job['customer_name'] ?? job['buyer_name'] ?? 'Pelanggan').toString(),
-      pickupAddress: (job['pickup_address'] ?? job['store_address'] ?? job['origin_address'] ?? '-').toString(),
-      dropoffAddress: (job['dropoff_address'] ?? job['customer_address'] ?? job['destination_address'] ?? '-').toString(),
+      status: readableDriverValue(job['status'] ?? job['state'], fallback: 'Menunggu'),
+      storeName: readableDriverValue(job['store_name'] ?? job['merchant_name'], fallback: 'Merchant'),
+      customerName: readableDriverValue(job['customer_name'] ?? job['buyer_name'], fallback: 'Pelanggan'),
+      pickupAddress: readableDriverValue(job['pickup_address'] ?? job['store_address'] ?? job['origin_address']),
+      dropoffAddress: readableDriverValue(job['dropoff_address'] ?? job['customer_address'] ?? job['destination_address']),
       price: money,
       pickup: point(
         const ['pickup_lat', 'pickup_latitude', 'origin_lat', 'merchant_lat'],
@@ -181,7 +223,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString())),
+        const SnackBar(content: Text('Status online gagal diperbarui. Periksa izin lokasi dan koneksi.')),
       );
     }
   }
@@ -828,10 +870,7 @@ class DriverProfile extends ConsumerWidget {
                   CircleAvatar(
                     radius: 30,
                     child: Text(
-                      (user['full_name'] ?? 'D')
-                          .toString()
-                          .substring(0, 1)
-                          .toUpperCase(),
+                      readableDriverValue(user['full_name'], fallback: 'D').substring(0, 1).toUpperCase(),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -840,7 +879,7 @@ class DriverProfile extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          user['full_name']?.toString() ?? '-',
+                          readableDriverValue(user['full_name']),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w900,
