@@ -85,17 +85,21 @@ class CustomerShell extends ConsumerStatefulWidget {
 
 class _CustomerShellState extends ConsumerState<CustomerShell> {
   int _index = 0;
+  int _cartRevision = 0;
   String? _selectedCategory;
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() => _index = 2)),
+      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() {
+        _cartRevision++;
+        _index = 2;
+      })),
       CustomerCategories(onSelect: (category) => setState(() {
         _selectedCategory = category;
         _index = 0;
       })),
-      const CustomerCart(),
+      CustomerCart(key: ValueKey('cart-$_cartRevision')),
       const CustomerOrders(),
       const CustomerProfile(),
     ];
@@ -125,7 +129,10 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) => setState(() {
+          if (value == 2) _cartRevision++;
+          _index = value;
+        }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Belanja'),
           NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Kategori'),
