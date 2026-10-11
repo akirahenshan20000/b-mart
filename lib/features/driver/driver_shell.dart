@@ -971,7 +971,12 @@ class DriverProfile extends ConsumerWidget {
           tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Tambah atau kelola rekening driver',
             () => _openBanksPage(context)),
           const SizedBox(height: 8),
-          tile(Icons.home_work_outlined, 'Alamat dan Titik Pangkal', 'Simpan alamat GPS dan radius layanan driver',
+          tile(Icons.location_on_outlined, 'Alamat Akun', 'Tambah, edit, dan pilih alamat driver',
+            () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => const MemberAddressBookPage(title: 'Alamat Driver'),
+            ))),
+          const SizedBox(height: 8),
+          tile(Icons.home_work_outlined, 'Alamat dan Titik Pangkal', 'Simpan GPS pangkal dan radius layanan driver',
             () => _openBaseLocationPage(context)),
           const SizedBox(height: 8),
           tile(Icons.shield_outlined, 'Keamanan Lokasi',
