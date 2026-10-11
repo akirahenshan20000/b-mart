@@ -508,10 +508,12 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
       if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
       if (snapshot.hasError) return _ErrorPanel(message: 'Pesanan belum dapat dimuat.', onRetry: () => setState(() => _future = _load()));
       final items = snapshot.data ?? const [];
-      if (items.isEmpty) return ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [
-        SizedBox(height: 100), Icon(Icons.receipt_long_outlined, size: 54, color: Color(0xFFB7AEB0)),
-        SizedBox(height: 12), Center(child: Text('Belum ada pesanan.')),
-      ]);
+      if (items.isEmpty) {
+        return ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [
+          SizedBox(height: 100), Icon(Icons.receipt_long_outlined, size: 54, color: Color(0xFFB7AEB0)),
+          SizedBox(height: 12), Center(child: Text('Belum ada pesanan.')),
+        ]);
+      }
       return ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: items.length,
