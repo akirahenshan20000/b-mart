@@ -14,6 +14,11 @@ String formatRupiah(dynamic raw) {
   return 'Rp ${value < 0 ? '-' : ''}${grouped.toString()}';
 }
 
+List<dynamic> catalogProductsFromPayload(dynamic payload) {
+  if (payload is! Map || payload['data'] is! List) return const [];
+  return List<dynamic>.from(payload['data'] as List);
+}
+
 String resolveMediaUrl(String raw, String apiBase) {
   final value = raw.trim();
   if (value.isEmpty) return '';
@@ -121,7 +126,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     final productPayload = results[0] as Map;
     final categoryPayload = results[1] as Map;
     return {
-      'products': List<dynamic>.from(productPayload['data'] as List? ?? const []),
+      'products': catalogProductsFromPayload(productPayload),
       'categories': List<dynamic>.from(categoryPayload['data'] as List? ?? const []),
       'apiBase': results[2] as String,
     };
