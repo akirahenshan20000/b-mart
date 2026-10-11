@@ -254,6 +254,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   Future<List<dynamic>> _loadProducts() async {
     final api = ref.read(apiClientProvider);
+    final stopwatch = Stopwatch()..start();
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
@@ -281,8 +282,13 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
           break;
         // "recommended" preserves the backend's existing order.
       }
+      stopwatch.stop();
       if (kDebugMode) {
-        debugPrint('[BersolekMart Catalog] products loaded=${products.length}; sort=$_sortBy; query=${query.keys.join(',')}.');
+        debugPrint(
+          '[BersolekMart Catalog] products loaded=${products.length}; '
+          'elapsed=${stopwatch.elapsedMilliseconds}ms; sort=$_sortBy; '
+          'query=${query.keys.join(',')}.',
+        );
       }
       return products;
     } catch (error) {
@@ -290,7 +296,11 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
         final detail = error is ApiException
             ? 'HTTP ${error.statusCode}, code=${error.code ?? '-'}'
             : error.runtimeType.toString();
-        debugPrint('[BersolekMart Catalog] products request/payload failed ($detail).');
+        stopwatch.stop();
+        debugPrint(
+          '[BersolekMart Catalog] products request/payload failed after '
+          '${stopwatch.elapsedMilliseconds}ms ($detail).',
+        );
       }
       rethrow;
     }
