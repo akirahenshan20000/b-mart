@@ -598,6 +598,14 @@ class CustomerProfile extends ConsumerWidget {
     ));
   }
 
+  void _openAddresses(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
+  }
+
+  void _openBanks(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerBankAccountsPage()));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(authControllerProvider).asData?.value;
@@ -657,14 +665,10 @@ class CustomerProfile extends ConsumerWidget {
             const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada data akun.')),
         const SizedBox(height: 8),
         item(Icons.location_on_outlined, 'Alamat Pengiriman', 'Lihat alamat yang tersedia pada akun',
-          () => _open(context, 'Alamat Pengiriman', Icons.location_on_outlined, user,
-            const ['address', 'addresses', 'shipping_address', 'default_address', 'recipient_name', 'address_line', 'kelurahan', 'kecamatan', 'city', 'postal_code'],
-            'Data alamat belum tersedia pada respons akun mobile. Pengeditan belum diaktifkan karena endpoint penyimpanan alamat belum terverifikasi.')),
+          _openAddresses(context)),
         const SizedBox(height: 8),
         item(Icons.account_balance_outlined, 'Rekening', 'Informasi rekening yang tersedia pada akun',
-          () => _open(context, 'Rekening', Icons.account_balance_outlined, user,
-            const ['bank_account', 'bank_accounts', 'bank_name', 'bank_code', 'account_name', 'account_number'],
-            'Data rekening belum tersedia pada respons akun mobile. Pengeditan belum diaktifkan karena endpoint penyimpanan rekening belum terverifikasi.')),
+          _openBanks(context)),
         const SizedBox(height: 8),
         item(Icons.support_agent_outlined, 'Bantuan', 'Informasi bantuan BersolekMart',
           () => _open(context, 'Bantuan', Icons.support_agent_outlined, user, const [],
@@ -684,6 +688,146 @@ class CustomerProfile extends ConsumerWidget {
       ],
     );
   }
+}
+
+class CustomerAddressesPage extends ConsumerStatefulWidget {
+  const CustomerAddressesPage({super.key});
+
+  @override
+  ConsumerState<CustomerAddressesPage> createState() => _CustomerAddressesPageState();
+}
+
+class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
+  late Future<List<dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<dynamic>> _load() async {
+    final payload = await ref.read(apiClientProvider).get('/addresses');
+    return List<dynamic>.from(payload is Map ? payload['data'] as List? ?? const [] : const []);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Alamat Pengiriman')),
+    body: FutureBuilder<List<dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return _ErrorPanel(
+          message: 'Alamat belum dapat dimuat. Pastikan endpoint API /addresses sudah tersedia di server.',
+          onRetry: () => setState(() => _future = _load()),
+        );
+        final addresses = snapshot.data ?? const [];
+        if (addresses.isEmpty) return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(28),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.location_off_outlined, size: 52, color: Color(0xFFD20A2E)),
+              SizedBox(height: 12),
+              Text('Belum ada alamat tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
+              SizedBox(height: 6),
+              Text('Pengelolaan alamat perlu endpoint simpan yang sesuai dengan PWA.', textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: addresses.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final address = Map<String, dynamic>.from(addresses[index] as Map);
+            final label = readableApiValue(address['label'], fallback: 'Alamat');
+            final name = readableApiValue(address['recipient_name'], fallback: 'Penerima');
+            final phone = readableApiValue(address['phone'], fallback: '');
+            final line = readableApiValue(address['address_line'], fallback: '');
+            final area = [
+              address['village'], address['district'], address['city'], address['province']
+            ].where((v) => v != null && v.toString().trim().isNotEmpty).join(', ');
+            final isDefault = address['is_default']?.toString() == '1' || address['is_default'] == true;
+            return Card(child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFFFFE5E9), child: Icon(Icons.location_on_outlined, color: Color(0xFFD20A2E))),
+              title: Row(children: [
+                Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w900))),
+                if (isDefault) const Chip(label: Text('Utama'), visualDensity: VisualDensity.compact),
+              ]),
+              subtitle: Text([name, phone, line, area].where((v) => v.isNotEmpty).join('\n')),
+              isThreeLine: true,
+            ));
+          },
+        );
+      },
+    ),
+  );
+}
+
+class CustomerBankAccountsPage extends ConsumerStatefulWidget {
+  const CustomerBankAccountsPage({super.key});
+
+  @override
+  ConsumerState<CustomerBankAccountsPage> createState() => _CustomerBankAccountsPageState();
+}
+
+class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsPage> {
+  late Future<List<dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<dynamic>> _load() async {
+    final payload = await ref.read(apiClientProvider).get('/banks');
+    return List<dynamic>.from(payload is Map ? payload['data'] as List? ?? const [] : const []);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Rekening')),
+    body: FutureBuilder<List<dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return _ErrorPanel(
+          message: 'Rekening belum dapat dimuat. Endpoint API /banks belum terverifikasi pada server.',
+          onRetry: () => setState(() => _future = _load()),
+        );
+        final accounts = snapshot.data ?? const [];
+        if (accounts.isEmpty) return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(28),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFFD20A2E)),
+              SizedBox(height: 12),
+              Text('Belum ada rekening tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
+              SizedBox(height: 6),
+              Text('Pengelolaan rekening perlu endpoint API yang terhubung ke data PWA.', textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: accounts.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final account = Map<String, dynamic>.from(accounts[index] as Map);
+            final isDefault = account['is_default']?.toString() == '1' || account['is_default'] == true;
+            return Card(child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFFFFE5E9), child: Icon(Icons.account_balance_outlined, color: Color(0xFFD20A2E))),
+              title: Text(readableApiValue(account['bank_name'], fallback: 'Bank'), style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text('${readableApiValue(account['account_name'], fallback: 'Pemilik rekening')}\n•••• ${readableApiValue(account['account_number'], fallback: '').replaceAll(RegExp(r'[^0-9]'), '').length > 4 ? readableApiValue(account['account_number']).replaceAll(RegExp(r'[^0-9]'), '').substring(readableApiValue(account['account_number']).replaceAll(RegExp(r'[^0-9]'), '').length - 4) : readableApiValue(account['account_number'])}'),
+              trailing: isDefault ? const Chip(label: Text('Utama')) : null,
+            ));
+          },
+        );
+      },
+    ),
+  );
 }
 
 class _CustomerAccountDetailPage extends StatelessWidget {
