@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'login_screen.dart';
 
 final selectedServiceProvider =
     NotifierProvider<SelectedServiceController, String?>(SelectedServiceController.new);
@@ -13,11 +12,11 @@ class SelectedServiceController extends Notifier<String?> {
   void select(String? value) => state = value;
 }
 
-class WelcomeSplashScreen extends StatelessWidget {
+class WelcomeSplashScreen extends ConsumerWidget {
   const WelcomeSplashScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -67,9 +66,7 @@ class WelcomeSplashScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 17),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     ),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const ServiceSelectionScreen()),
-                    ),
+                    onPressed: () => ref.read(selectedServiceProvider.notifier).select('choose'),
                     child: const Text('Mulai', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                   ),
                 ),
@@ -115,9 +112,7 @@ class ServiceSelectionScreen extends ConsumerWidget {
               subtitle: 'Temukan produk UMKM lokal dan pantau pesananmu.',
               onTap: () {
                 ref.read(selectedServiceProvider.notifier).select('customer');
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const _LoginRoute(role: 'customer'),
-                ));
+                // Root app switches to the role-specific login screen.
               },
             ),
             const SizedBox(height: 16),
@@ -127,15 +122,13 @@ class ServiceSelectionScreen extends ConsumerWidget {
               subtitle: 'Antar pesanan, kelola pengantaran, dan pantau pendapatan.',
               onTap: () {
                 ref.read(selectedServiceProvider.notifier).select('driver');
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const _LoginRoute(role: 'driver'),
-                ));
+                // Root app switches to the role-specific login screen.
               },
             ),
             const SizedBox(height: 26),
             Center(
               child: TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () => ref.read(selectedServiceProvider.notifier).select(null),
                 child: const Text('Kembali ke halaman awal'),
               ),
             ),
@@ -144,14 +137,6 @@ class ServiceSelectionScreen extends ConsumerWidget {
       ),
     );
   }
-}
-
-class _LoginRoute extends StatelessWidget {
-  const _LoginRoute({required this.role});
-  final String role;
-
-  @override
-  Widget build(BuildContext context) => LoginScreen(expectedRole: role);
 }
 
 class _ServiceCard extends StatelessWidget {
