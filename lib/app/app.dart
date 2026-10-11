@@ -186,8 +186,77 @@ class _Splash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF13090B), Color(0xFF3A0610), Color(0xFF8E001E)],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 104,
+                  height: 104,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(12),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white.withAlpha(35)),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x44000000), blurRadius: 30, offset: Offset(0, 12)),
+                    ],
+                  ),
+                  child: Image.asset(
+                    'assets/branding/bersolek-mart-adaptive-foreground.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Icon(
+                      Icons.shopping_bag_rounded,
+                      color: Colors.white,
+                      size: 56,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                const Text(
+                  'BersolekMart',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    height: 1.1,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.7,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                const Text(
+                  'Marketplace UMKM Probolinggo',
+                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 28),
+                const SizedBox(
+                  width: 25,
+                  height: 25,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Color(0xFFFFDCE2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Menyiapkan aplikasi…',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
