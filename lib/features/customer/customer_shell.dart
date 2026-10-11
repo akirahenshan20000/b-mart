@@ -100,14 +100,23 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF171113),
+        backgroundColor: const Color(0xFFD20A2E),
+        foregroundColor: Colors.white,
         elevation: 0,
         title: Row(
           children: [
-            Image.asset('assets/branding/bersolek-mart-icon-512.png', width: 32, height: 32, fit: BoxFit.contain),
-            const SizedBox(width: 8),
-            const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900)),
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(28),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
           ],
         ),
       ),
@@ -576,28 +585,174 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
 
 class CustomerProfile extends ConsumerWidget {
   const CustomerProfile({super.key});
+
+  void _open(BuildContext context, String title, IconData icon, Map<String, dynamic> user, List<String> keys, String emptyText) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => _CustomerAccountDetailPage(
+        title: title,
+        icon: icon,
+        user: user,
+        keys: keys,
+        emptyText: emptyText,
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(authControllerProvider).asData?.value;
     final user = session?.user ?? const <String, dynamic>{};
     final name = readableApiValue(user['full_name'], fallback: 'Pengguna BersolekMart');
-    return ListView(padding: const EdgeInsets.all(22), children: [
-      const SizedBox(height: 12),
-      Center(child: Image.asset('assets/branding/bersolek-mart-icon-512.png', width: 100, height: 100)),
-      const SizedBox(height: 14),
-      Center(child: Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
-      Center(child: Text(readableApiValue(user['email'] ?? user['phone']), style: const TextStyle(color: Colors.black54))),
-      const SizedBox(height: 26),
-      Card(child: ListTile(leading: const Icon(Icons.person_outline), title: const Text('Profil Saya'), trailing: const Icon(Icons.chevron_right))),
-      const SizedBox(height: 8),
-      Card(child: ListTile(leading: const Icon(Icons.support_agent_outlined), title: const Text('Bantuan'), trailing: const Icon(Icons.chevron_right))),
-      const SizedBox(height: 22),
-      OutlinedButton.icon(
-        style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFD20A2E), padding: const EdgeInsets.symmetric(vertical: 14)),
-        onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-        icon: const Icon(Icons.logout_rounded), label: const Text('Keluar'),
+    final contact = readableApiValue(user['email'] ?? user['phone']);
+
+    Widget item(IconData icon, String title, String subtitle, VoidCallback onTap) => Card(
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        leading: Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(color: const Color(0xFFFFE5E9), borderRadius: BorderRadius.circular(13)),
+          child: Icon(icon, color: const Color(0xFFD20A2E)),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
       ),
-    ]);
+    );
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFFD20A2E), Color(0xFF7D0018)]),
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Row(children: [
+            Container(
+              width: 64, height: 64,
+              decoration: BoxDecoration(color: Colors.white.withAlpha(28), borderRadius: BorderRadius.circular(20)),
+              child: const Icon(Icons.person_rounded, color: Colors.white, size: 36),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text(contact, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 8),
+              const Text('Akun Pembeli', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 22),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text('Akun Saya', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+        ),
+        item(Icons.person_outline_rounded, 'Profil Saya', 'Informasi akun dan kontak',
+          () => _open(context, 'Profil Saya', Icons.person_outline_rounded, user,
+            const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada data akun.')),
+        const SizedBox(height: 8),
+        item(Icons.location_on_outlined, 'Alamat Pengiriman', 'Lihat alamat yang tersedia pada akun',
+          () => _open(context, 'Alamat Pengiriman', Icons.location_on_outlined, user,
+            const ['address', 'addresses', 'shipping_address', 'default_address', 'recipient_name', 'address_line', 'kelurahan', 'kecamatan', 'city', 'postal_code'],
+            'Data alamat belum tersedia pada respons akun mobile. Pengeditan belum diaktifkan karena endpoint penyimpanan alamat belum terverifikasi.')),
+        const SizedBox(height: 8),
+        item(Icons.account_balance_outlined, 'Rekening', 'Informasi rekening yang tersedia pada akun',
+          () => _open(context, 'Rekening', Icons.account_balance_outlined, user,
+            const ['bank_account', 'bank_accounts', 'bank_name', 'bank_code', 'account_name', 'account_number'],
+            'Data rekening belum tersedia pada respons akun mobile. Pengeditan belum diaktifkan karena endpoint penyimpanan rekening belum terverifikasi.')),
+        const SizedBox(height: 8),
+        item(Icons.support_agent_outlined, 'Bantuan', 'Informasi bantuan BersolekMart',
+          () => _open(context, 'Bantuan', Icons.support_agent_outlined, user, const [],
+            'Untuk bantuan transaksi, gunakan kanal bantuan yang tersedia pada PWA BersolekMart.')),
+        const SizedBox(height: 22),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFFD20A2E),
+            side: const BorderSide(color: Color(0xFFD20A2E)),
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('Keluar dari akun'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerAccountDetailPage extends StatelessWidget {
+  const _CustomerAccountDetailPage({
+    required this.title,
+    required this.icon,
+    required this.user,
+    required this.keys,
+    required this.emptyText,
+  });
+
+  final String title;
+  final IconData icon;
+  final Map<String, dynamic> user;
+  final List<String> keys;
+  final String emptyText;
+
+  String _label(String key) {
+    const labels = {
+      'full_name': 'Nama lengkap', 'name': 'Nama', 'email': 'Email',
+      'phone': 'Nomor telepon', 'nik': 'NIK', 'address': 'Alamat',
+      'addresses': 'Daftar alamat', 'shipping_address': 'Alamat pengiriman',
+      'default_address': 'Alamat utama', 'recipient_name': 'Nama penerima',
+      'address_line': 'Detail alamat', 'kelurahan': 'Kelurahan',
+      'kecamatan': 'Kecamatan', 'city': 'Kota', 'postal_code': 'Kode pos',
+      'bank_account': 'Rekening', 'bank_accounts': 'Daftar rekening',
+      'bank_name': 'Nama bank', 'bank_code': 'Kode bank',
+      'account_name': 'Nama pemilik rekening', 'account_number': 'Nomor rekening',
+    };
+    return labels[key] ?? key.replaceAll('_', ' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fields = keys.where((key) => user[key] != null && readableApiValue(user[key], fallback: '').isNotEmpty).toList();
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: fields.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(icon, size: 52, color: const Color(0xFFD20A2E)),
+                  const SizedBox(height: 14),
+                  Text(emptyText, textAlign: TextAlign.center, style: const TextStyle(height: 1.5)),
+                ]),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                for (final key in fields)
+                  Card(
+                    child: ListTile(
+                      title: Text(_label(key), style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Text(readableApiValue(user[key]), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Halaman ini menampilkan data yang dikirim oleh API akun. Perubahan data hanya diaktifkan setelah kontrak endpoint update dari backend terverifikasi.',
+                  style: TextStyle(color: Colors.black54, height: 1.45),
+                ),
+              ],
+            ),
+    );
   }
 }
 
