@@ -1113,7 +1113,7 @@ class _DriverProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final safeCurrent = current.clamp(0, _labels.length - 1);
+    final safeCurrent = current.clamp(0, _labels.length - 1).toInt();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1440,7 +1440,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
       return;
     }
     setState(() => _followGps = true);
-    _cameraZoom = math.max(_cameraZoom, 15);
+    _cameraZoom = _cameraZoom < 15 ? 15 : _cameraZoom;
     if (_mapReady) _mapController.move(_driverPoint, _cameraZoom);
     _maybeLoadRoute(force: true);
   }
