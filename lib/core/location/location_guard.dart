@@ -48,8 +48,8 @@ class LocationGuard {
 
     final settings = AndroidSettings(
       accuracy: LocationAccuracy.best,
-      distanceFilter: 10,
-      intervalDuration: Duration(seconds: 8),
+      distanceFilter: 5,
+      intervalDuration: const Duration(seconds: 5),
       foregroundNotificationConfig: ForegroundNotificationConfig(
         notificationTitle: 'BersolekMart Driver aktif',
         notificationText: 'Validasi lokasi sedang berjalan.',
