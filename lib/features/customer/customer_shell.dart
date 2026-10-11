@@ -817,10 +817,13 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
           itemBuilder: (context, index) {
             final account = Map<String, dynamic>.from(accounts[index] as Map);
             final isDefault = account['is_default']?.toString() == '1' || account['is_default'] == true;
+            final accountNumber = readableApiValue(account['account_number'], fallback: '');
+            final digits = accountNumber.replaceAll(RegExp(r'[^0-9]'), '');
+            final maskedNumber = digits.length > 4 ? '•••• ${digits.substring(digits.length - 4)}' : accountNumber;
             return Card(child: ListTile(
               leading: const CircleAvatar(backgroundColor: Color(0xFFFFE5E9), child: Icon(Icons.account_balance_outlined, color: Color(0xFFD20A2E))),
               title: Text(readableApiValue(account['bank_name'], fallback: 'Bank'), style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text('${readableApiValue(account['account_name'], fallback: 'Pemilik rekening')}\n•••• ${readableApiValue(account['account_number'], fallback: '').replaceAll(RegExp(r'[^0-9]'), '').length > 4 ? readableApiValue(account['account_number']).replaceAll(RegExp(r'[^0-9]'), '').substring(readableApiValue(account['account_number']).replaceAll(RegExp(r'[^0-9]'), '').length - 4) : readableApiValue(account['account_number'])}'),
+              subtitle: Text('${readableApiValue(account['account_name'], fallback: 'Pemilik rekening')}\n$maskedNumber'),
               trailing: isDefault ? const Chip(label: Text('Utama')) : null,
             ));
           },
