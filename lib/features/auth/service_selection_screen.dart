@@ -34,33 +34,29 @@ class WelcomeSplashScreen extends ConsumerWidget {
               children: [
                 const Spacer(),
                 Container(
-                  width: 156,
-                  height: 156,
+                  width: 276,
+                  height: 248,
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFFF334F), Color(0xFFB60025), Color(0xFF6D0015)],
-                    ),
-                    borderRadius: BorderRadius.circular(38),
-                    border: Border.all(color: Colors.white24),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(color: Colors.white70),
                     boxShadow: const [
                       BoxShadow(color: Color(0x6688001D), blurRadius: 28, offset: Offset(0, 12)),
                     ],
                   ),
-                  child: const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
+                  child: Image.asset(
+                    'assets/branding/bersolek-mart-icon-512.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, size: 84, color: Color(0xFFD20A2E)),
+                  ),
                 ),
                 const SizedBox(height: 22),
-                const Text(
-                  'BersolekMart',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
-                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Marketplace Lokal, Peluang Tanpa Batas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 15, color: Colors.white70),
+                  style: TextStyle(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 SizedBox(
