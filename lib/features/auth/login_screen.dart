@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+import 'service_selection_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key, this.message, this.expectedRole});
@@ -98,7 +99,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     icon: auth.isLoading ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_forward_rounded),
                     label: Text(auth.isLoading ? 'Menghubungkan…' : expectedRole == 'driver' ? 'Masuk sebagai Driver' : expectedRole == 'customer' ? 'Masuk dan Belanja' : 'Masuk ke BersolekMart'),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => ref.read(selectedServiceProvider.notifier).select('choose'),
+                    child: const Text('Ganti layanan'),
+                  ),
+                  const SizedBox(height: 10),
                   Text(expectedRole == 'driver' ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.' : expectedRole == 'customer' ? 'Khusus akun Pembeli. Driver masuk melalui layanan Driver.' : 'Administrator, Operator, dan Merchant tetap menggunakan web/backend.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
                 ],
               ),
