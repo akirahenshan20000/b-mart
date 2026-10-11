@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bersolek_mart_mobile/features/customer/customer_shell.dart';
+import 'package:bersolek_mart_mobile/features/auth/service_selection_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() {
   group('catalog formatting and media URL helpers', () {
@@ -68,3 +70,5 @@ void main() {
     expect(find.byIcon(Icons.image_not_supported_outlined), findsOneWidget);
   });
 }
+
+void serviceFlowTests() {}
