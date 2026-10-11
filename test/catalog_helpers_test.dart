@@ -101,11 +101,55 @@ void main() {
     await tester.pumpWidget(const ProviderScope(
       child: MaterialApp(home: WelcomeSplashScreen()),
     ));
-    await tester.tap(find.text('Mulai'));
+    await tester.tap(find.text('Mulai sekarang'));
     await tester.pump();
 
     final context = tester.element(find.byType(WelcomeSplashScreen));
     expect(ProviderScope.containerOf(context).read(selectedServiceProvider), 'choose');
+  });
+
+  test('driver delivery lifecycle distinguishes delivered from completed', () {
+    final delivered = driver_ui.DriverJobView(
+      id: '44',
+      code: 'BM-44',
+      status: 'delivered',
+      storeName: 'Merchant uji',
+      customerName: 'Pelanggan uji',
+      pickupAddress: 'Alamat pickup',
+      dropoffAddress: 'Alamat pelanggan',
+      price: 12000,
+      pickup: null,
+      dropoff: null,
+    );
+    expect(delivered.isCompleted, isFalse);
+    expect(delivered.isActive, isTrue);
+    expect(delivered.statusLabel, 'Bukti Pengantaran');
+
+    final completed = delivered.withStatus('completed');
+    expect(completed.isCompleted, isTrue);
+    expect(completed.isNew, isFalse);
+    expect(completed.statusLabel, 'Selesai');
+  });
+
+  test('driver queue only treats server-available assigned jobs as new', () {
+    driver_ui.DriverJobView makeJob({required bool availableToAccept}) => driver_ui.DriverJobView(
+      id: '45',
+      code: 'BM-45',
+      status: 'assigned',
+      availableToAccept: availableToAccept,
+      storeName: 'Merchant uji',
+      customerName: 'Pelanggan uji',
+      pickupAddress: 'Alamat pickup',
+      dropoffAddress: 'Alamat pelanggan',
+      price: null,
+      pickup: null,
+      dropoff: null,
+    );
+
+    expect(makeJob(availableToAccept: true).isNew, isTrue);
+    expect(makeJob(availableToAccept: true).isActive, isFalse);
+    expect(makeJob(availableToAccept: false).isNew, isFalse);
+    expect(makeJob(availableToAccept: false).isActive, isTrue);
   });
 
   testWidgets('service selection chooses the driver role', (tester) async {
