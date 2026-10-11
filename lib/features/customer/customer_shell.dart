@@ -325,7 +325,14 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
               const SizedBox(height: 22),
               Row(children: [
                 const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
-                TextButton(onPressed: () => setState(() => _category = null), child: const Text('Semua')),
+                TextButton(
+                  onPressed: () {
+                    if (_category == null) return;
+                    _category = null;
+                    _reload();
+                  },
+                  child: const Text('Semua'),
+                ),
               ]),
               SizedBox(
                 height: 94,
