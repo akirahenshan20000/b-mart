@@ -913,9 +913,9 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       final rates = await _requestRates(selectedAddress, _location);
       final methods = List<dynamic>.from(options['payment_methods'] as List? ?? const []).map((e) => e.toString()).toList();
       if (_paymentMethod == null || !methods.contains(_paymentMethod)) _paymentMethod = methods.isNotEmpty ? methods.first : null;
-      if (_rateId == null || !rates.any((r) => r is Map && r['id'].toString() == _rateId.toString())) {
+      if (_rateId == null || !rates.any((r) => r is Map && (int.tryParse(r['id']?.toString() ?? '') ?? 0) == (_rateId ?? 0))) {
         final chosenRate = rates.whereType<Map>().firstOrNull;
-        _rateId = chosenRate == null ? null : int.tryParse(chosenRate['id']?.toString() ?? '');
+        _rateId = chosenRate == null ? null : (int.tryParse(chosenRate['id']?.toString() ?? '') ?? 0);
         _shippingMethod = chosenRate?['method']?.toString();
       }
       if (mounted) setState(() {
@@ -938,7 +938,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       if (!mounted) return;
       final chosenRate = rates.whereType<Map>().firstOrNull;
       setState(() {
-        _rateId = chosenRate == null ? null : int.tryParse(chosenRate['id']?.toString() ?? '');
+        _rateId = chosenRate == null ? null : (int.tryParse(chosenRate['id']?.toString() ?? '') ?? 0);
         _shippingMethod = chosenRate?['method']?.toString();
         _data = {...data, 'rates': rates};
       });
@@ -993,7 +993,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
     final addresses = List<dynamic>.from(data['addresses'] as List? ?? const []);
     final rates = List<dynamic>.from(data['rates'] as List? ?? const []);
     final address = addresses.whereType<Map>().where((a) => a['id'].toString() == _addressId.toString()).firstOrNull;
-    final rate = rates.whereType<Map>().where((r) => r['id'].toString() == _rateId.toString()).firstOrNull;
+    final rate = rates.whereType<Map>().where((r) => (int.tryParse(r['id']?.toString() ?? '') ?? 0) == (_rateId ?? 0)).firstOrNull;
     final methods = List<dynamic>.from(options['payment_methods'] as List? ?? const []).map((e) => e.toString()).toList();
     if (address == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pilih atau tambahkan alamat pengiriman terlebih dahulu.')));
