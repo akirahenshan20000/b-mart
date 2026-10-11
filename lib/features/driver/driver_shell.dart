@@ -529,7 +529,7 @@ class DriverHome extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _OrderCard(
                   job: job,
-                  buttonText: 'Buka Peta',
+                  buttonText: 'Detail Order',
                   onPressed: () => onOpenJob(job),
                 ),
               ),
@@ -1329,6 +1329,19 @@ class _FullscreenRouteCard extends StatelessWidget {
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           Text(job.dropoffAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _openRoadNavigation(context, job),
+              icon: const Icon(Icons.navigation_rounded),
+              label: const Text('Mulai navigasi'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFD20A2E),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -2014,7 +2027,7 @@ class _JobList extends StatelessWidget {
           ),
           child: _OrderCard(
             job: job,
-            buttonText: selected ? 'Dipilih' : 'Lihat Peta',
+            buttonText: 'Detail Order',
             onPressed: () => onSelect(job),
           ),
         );
