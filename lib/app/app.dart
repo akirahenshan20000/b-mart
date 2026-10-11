@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/auth_controller.dart';
 import '../features/auth/login_screen.dart';
+import '../features/auth/service_selection_screen.dart';
 import '../features/customer/customer_shell.dart';
 import '../features/driver/driver_shell.dart';
 
@@ -12,6 +13,7 @@ class BersolekMartApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
+    final selectedService = ref.watch(selectedServiceProvider);
 
     return MaterialApp(
       title: 'BersolekMart',
@@ -59,9 +61,17 @@ class BersolekMartApp extends ConsumerWidget {
       ),
       home: auth.when(
         loading: () => const _Splash(),
-        error: (error, _) => LoginScreen(message: '$error'),
+        error: (error, _) => selectedService == 'choose'
+            ? const ServiceSelectionScreen()
+            : LoginScreen(message: '$error', expectedRole: selectedService),
         data: (session) {
-          if (session == null) return const LoginScreen();
+          if (session == null) {
+            if (selectedService == 'choose') return const ServiceSelectionScreen();
+            if (selectedService == 'customer' || selectedService == 'driver') {
+              return LoginScreen(expectedRole: selectedService);
+            }
+            return const WelcomeSplashScreen();
+          }
           return session.isDriver ? const DriverShell() : const CustomerShell();
         },
       ),

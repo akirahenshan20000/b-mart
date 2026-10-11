@@ -40,7 +40,7 @@ class AuthController extends AsyncNotifier<Session?> {
     }
   }
 
-  Future<void> login(String login, String password, String deviceName) async {
+  Future<void> login(String login, String password, String deviceName, {String? expectedRole}) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       final payload = await _api.post(
@@ -59,6 +59,12 @@ class AuthController extends AsyncNotifier<Session?> {
       final session = Session(user: user, token: token);
       if (!session.isCustomer && !session.isDriver) {
         throw ApiException(403, 'Akun administrator/operator/merchant tidak dapat masuk ke aplikasi mobile.');
+      }
+      if (expectedRole == 'driver' && !session.isDriver) {
+        throw ApiException(403, 'Akun ini bukan akun Driver. Pilih layanan Belanja untuk masuk sebagai pembeli.');
+      }
+      if (expectedRole == 'customer' && !session.isCustomer) {
+        throw ApiException(403, 'Akun ini bukan akun Pembeli. Pilih layanan Driver untuk masuk sebagai driver.');
       }
       await _store.saveToken(token);
       return session;

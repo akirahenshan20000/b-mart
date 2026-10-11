@@ -32,11 +32,22 @@ jobs:
       - name: Generate Android platform
         run: flutter create . --platforms=android
 
+      - name: Apply Android permissions and branded app label
+        run: python scripts/patch_android.py
+
       - name: Remove generated placeholder test
-        run: rm -rf test
+        run: |
+          rm -f test/widget_test.dart
+          if [ -d test ] && [ -z "$(ls -A test)" ]; then rmdir test; fi
 
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Generate branded Android launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Run tests
+        run: flutter test
 
       - name: Analyze
         run: flutter analyze

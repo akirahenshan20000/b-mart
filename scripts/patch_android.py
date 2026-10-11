@@ -6,6 +6,7 @@ if not manifest.exists():
     raise SystemExit('AndroidManifest.xml not found. Run flutter create --platforms=android . first.')
 
 text = manifest.read_text(encoding='utf-8')
+text = re.sub(r'android:label="[^"]*"', 'android:label="BersolekMart"', text, count=1)
 
 perms = [
     'android.permission.INTERNET',
