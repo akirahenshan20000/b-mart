@@ -116,9 +116,9 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         title: Row(
           children: [
             Image.asset(
-              'assets/branding/bersolek-mart-icon-512.png',
-              width: 36,
-              height: 36,
+              'assets/branding/bersolek-mart-adaptive-foreground.png',
+              width: 38,
+              height: 38,
               fit: BoxFit.contain,
               errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 28),
             ),
