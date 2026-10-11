@@ -377,214 +377,299 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     }
   }
 
+  Widget _catalogLoadingGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 4,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: .73,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      itemBuilder: (context, index) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Container(
+                color: const Color(0xFFF1EAEC),
+                alignment: Alignment.center,
+                child: const Icon(Icons.image_outlined, size: 30, color: Color(0xFFD2C6C9)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 11),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(height: 10, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFEDE6E8), borderRadius: BorderRadius.circular(6))),
+                const SizedBox(height: 7),
+                Container(height: 10, width: 78, decoration: BoxDecoration(color: const Color(0xFFEDE6E8), borderRadius: BorderRadius.circular(6))),
+                const SizedBox(height: 9),
+                Container(height: 14, width: 92, decoration: BoxDecoration(color: const Color(0xFFFFE0E6), borderRadius: BorderRadius.circular(6))),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _catalogStatePanel({
+    required IconData icon,
+    required String title,
+    required String message,
+    required Widget action,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 18),
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFEDE3E5)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(color: const Color(0xFFFFE9ED), borderRadius: BorderRadius.circular(18)),
+            child: Icon(icon, size: 30, color: const Color(0xFFD20A2E)),
+          ),
+          const SizedBox(height: 12),
+          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+          const SizedBox(height: 6),
+          Text(message, textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF6B6265), height: 1.4, fontSize: 13)),
+          const SizedBox(height: 14),
+          action,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeContent(AsyncSnapshot<List<dynamic>> snapshot) {
+    final loading = snapshot.connectionState == ConnectionState.waiting;
+    final error = snapshot.hasError ? snapshot.error : null;
+    final items = (!loading && error == null) ? (snapshot.data ?? const <dynamic>[]) : const <dynamic>[];
+    final apiBase = _apiBase;
+    final categories = _categories;
+    final hasFilter = _search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false);
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 18),
+      children: [
+        _CmsHeroCarousel(slides: _heroSlides, apiBase: apiBase),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _search,
+          textInputAction: TextInputAction.search,
+          onChanged: _scheduleSearch,
+          onSubmitted: (_) => _reload(),
+          decoration: InputDecoration(
+            hintText: 'Cari produk, toko, atau kategori…',
+            prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: IconButton(
+              tooltip: 'Cari',
+              icon: const Icon(Icons.arrow_forward_rounded),
+              onPressed: _reload,
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(children: [
+          const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+          TextButton(
+            onPressed: _category == null ? null : () {
+              _category = null;
+              _reload();
+            },
+            child: const Text('Semua'),
+          ),
+        ]),
+        SizedBox(
+          height: 82,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: categories.length + 1,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _CategoryTile(
+                  label: 'Semua',
+                  icon: Icons.apps_rounded,
+                  selected: _category == null,
+                  onTap: () {
+                    if (_category == null) return;
+                    _category = null;
+                    _reload();
+                  },
+                );
+              }
+              final category = Map<String, dynamic>.from(categories[index - 1] as Map);
+              final slug = (category['slug'] ?? '').toString();
+              return _CategoryTile(
+                label: (category['name'] ?? 'Kategori').toString().trim(),
+                icon: _categoryIcon((category['name'] ?? '').toString()),
+                selected: _category == slug,
+                onTap: () {
+                  _category = slug;
+                  _reload();
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+          if (loading)
+            const SizedBox.square(dimension: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)))
+          else
+            Text(error != null ? '—' : '${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 11)),
+          const SizedBox(width: 2),
+          PopupMenuButton<String>(
+            tooltip: 'Urutkan produk',
+            icon: const Icon(Icons.sort_rounded, size: 22),
+            onSelected: (value) {
+              if (value == _sortBy) return;
+              setState(() => _sortBy = value);
+              _reload();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'recommended', child: Text('Rekomendasi')),
+              PopupMenuItem(value: 'price_low', child: Text('Harga terendah')),
+              PopupMenuItem(value: 'price_high', child: Text('Harga tertinggi')),
+              PopupMenuItem(value: 'name', child: Text('Nama A–Z')),
+            ],
+          ),
+        ]),
+        const SizedBox(height: 8),
+        if (loading) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(2, 4, 2, 10),
+            child: Text('Memuat katalog dari server…', style: TextStyle(color: Color(0xFF6B6265), fontSize: 12)),
+          ),
+          _catalogLoadingGrid(),
+        ] else if (error != null)
+          _catalogStatePanel(
+            icon: Icons.cloud_off_rounded,
+            title: 'Produk belum dapat dimuat',
+            message: catalogErrorMessage(error),
+            action: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _reload,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Coba muat ulang'),
+              ),
+            ),
+          )
+        else if (items.isEmpty)
+          _catalogStatePanel(
+            icon: Icons.shopping_bag_outlined,
+            title: hasFilter ? 'Produk tidak ditemukan' : 'Belum ada produk aktif',
+            message: hasFilter
+                ? 'Coba kata kunci lain atau hapus filter untuk melihat produk yang tersedia.'
+                : 'Katalog berhasil dimuat, tetapi server belum mengembalikan produk aktif.',
+            action: hasFilter
+                ? OutlinedButton.icon(
+                    onPressed: () {
+                      _search.clear();
+                      _category = null;
+                      _reload();
+                    },
+                    icon: const Icon(Icons.filter_alt_off_rounded),
+                    label: const Text('Hapus pencarian dan filter'),
+                  )
+                : OutlinedButton.icon(
+                    onPressed: _reload,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Muat ulang katalog'),
+                  ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: .73,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemBuilder: (context, index) {
+              final product = Map<String, dynamic>.from(items[index] as Map);
+              final basePrice = _number(product['price']);
+              final salePrice = _number(product['sale_price']);
+              final price = salePrice > 0 && basePrice > 0 && salePrice < basePrice ? salePrice : basePrice;
+              final image = (product['image'] ?? '').toString();
+              return InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => _showProduct(
+                  context,
+                  product,
+                  apiBase,
+                  onAddToCart: (quantity) => _addToCart(product, quantity: quantity),
+                ),
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 1.30,
+                        child: Hero(
+                          tag: 'product-${product['id']}',
+                          child: ProductImageView(path: image, apiBase: apiBase),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(9, 8, 9, 9),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
+                              const Spacer(),
+                              Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
+                              const SizedBox(height: 3),
+                              Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1,
+                                overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: FutureBuilder<List<dynamic>>(
         future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            final error = snapshot.error!;
-            return _ErrorPanel(
-              message: catalogErrorMessage(error),
-              onRetry: _reload,
-            );
-          }
-
-          final items = snapshot.data ?? const <dynamic>[];
-          final categories = _categories;
-          final apiBase = _apiBase;
-
-          return ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 18),
-            children: [
-              _CmsHeroCarousel(
-                slides: _heroSlides,
-                apiBase: apiBase,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _search,
-                textInputAction: TextInputAction.search,
-                onChanged: _scheduleSearch,
-                onSubmitted: (_) => _reload(),
-                decoration: InputDecoration(
-                  hintText: 'Cari produk, toko, atau kategori…',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: IconButton(icon: const Icon(Icons.arrow_forward_rounded), onPressed: _reload),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(children: [
-                const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
-                TextButton(
-                  onPressed: () {
-                    if (_category == null) return;
-                    _category = null;
-                    _reload();
-                  },
-                  child: const Text('Semua'),
-                ),
-              ]),
-              SizedBox(
-                height: 82,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: categories.length + 1,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _CategoryTile(label: 'Semua', icon: Icons.apps_rounded, selected: _category == null, onTap: () {
-                        _category = null;
-                        _reload();
-                      });
-                    }
-                    final category = Map<String, dynamic>.from(categories[index - 1] as Map);
-                    final slug = (category['slug'] ?? '').toString();
-                    return _CategoryTile(
-                      label: (category['name'] ?? 'Kategori').toString().trim(),
-                      icon: _categoryIcon((category['name'] ?? '').toString()),
-                      selected: _category == slug,
-                      onTap: () {
-                        _category = slug;
-                        _reload();
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(children: [
-                const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
-                Text('${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 11)),
-                const SizedBox(width: 2),
-                PopupMenuButton<String>(
-                  tooltip: 'Urutkan produk',
-                  icon: const Icon(Icons.sort_rounded, size: 22),
-                  onSelected: (value) {
-                    if (value == _sortBy) return;
-                    setState(() => _sortBy = value);
-                    _reload();
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'recommended', child: Text('Rekomendasi')),
-                    PopupMenuItem(value: 'price_low', child: Text('Harga terendah')),
-                    PopupMenuItem(value: 'price_high', child: Text('Harga tertinggi')),
-                    PopupMenuItem(value: 'name', child: Text('Nama A–Z')),
-                  ],
-                ),
-              ]),
-              const SizedBox(height: 8),
-              if (items.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 8),
-                  child: Column(children: [
-                    const Icon(Icons.inventory_2_outlined, size: 54, color: Color(0xFFB5AEB0)),
-                    const SizedBox(height: 10),
-                    Text(
-                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Tidak ada produk untuk filter ini.'
-                          : 'Belum ada produk aktif dari server.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Hapus pencarian atau pilih kategori lain untuk melihat hasil berbeda.'
-                          : 'Katalog berhasil dimuat, tetapi server tidak mengembalikan produk aktif.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.black54, height: 1.4),
-                    ),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: (_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? () {
-                              _search.clear();
-                              _category = null;
-                              _reload();
-                            }
-                          : _reload,
-                      icon: Icon((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? Icons.filter_alt_off_rounded
-                          : Icons.refresh_rounded),
-                      label: Text((_search.text.trim().isNotEmpty || (_category?.isNotEmpty ?? false))
-                          ? 'Hapus filter'
-                          : 'Muat ulang katalog'),
-                    ),
-                  ]),
-                )
-              else
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: items.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, childAspectRatio: .73, crossAxisSpacing: 10, mainAxisSpacing: 10,
-                  ),
-                  itemBuilder: (context, index) {
-                    final product = Map<String, dynamic>.from(items[index] as Map);
-                    final basePrice = _number(product['price']);
-                    final salePrice = _number(product['sale_price']);
-                    final price = salePrice > 0 && basePrice > 0 && salePrice < basePrice ? salePrice : basePrice;
-                    final image = (product['image'] ?? '').toString();
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () => _showProduct(
-                        context,
-                        product,
-                        apiBase,
-                        onAddToCart: (quantity) => _addToCart(product, quantity: quantity),
-                      ),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            AspectRatio(
-                              aspectRatio: 1.30,
-                              child: Hero(
-                                tag: 'product-${product['id']}',
-                                child: ProductImageView(path: image, apiBase: apiBase),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(9, 8, 9, 9),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
-                                  const SizedBox(height: 5),
-                                  Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
-                                  const SizedBox(height: 3),
-                                  Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11, color: Colors.black54)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            ],
-          );
-        },
+        builder: (context, snapshot) => _buildHomeContent(snapshot),
       ),
     );
   }
-
   @override
   void dispose() {
     _searchDebounce?.cancel();
