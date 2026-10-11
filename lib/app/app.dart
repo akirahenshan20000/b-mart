@@ -61,7 +61,9 @@ class BersolekMartApp extends ConsumerWidget {
       ),
       home: auth.when(
         loading: () => const _Splash(),
-        error: (error, _) => LoginScreen(message: '$error', expectedRole: selectedService),
+        error: (error, _) => selectedService == 'choose'
+            ? const ServiceSelectionScreen()
+            : LoginScreen(message: '$error', expectedRole: selectedService),
         data: (session) {
           if (session == null) {
             if (selectedService == 'choose') return const ServiceSelectionScreen();
