@@ -568,25 +568,29 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _ErrorPanel(
-          message: 'Keranjang belum dapat dimuat. Pastikan API cart sudah dipasang di server.',
-          onRetry: () => setState(() => _future = _load()),
-        );
+        if (snapshot.hasError) {
+          return _ErrorPanel(
+            message: 'Keranjang belum dapat dimuat. Pastikan API cart sudah dipasang di server.',
+            onRetry: () => setState(() => _future = _load()),
+          );
+        }
         final data = snapshot.data ?? const <String, dynamic>{};
         final items = List<dynamic>.from(data['items'] as List? ?? const []);
         final apiBase = data['apiBase']?.toString() ?? '';
-        if (items.isEmpty) return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.shopping_basket_outlined, size: 56, color: Color(0xFFD20A2E)),
-              SizedBox(height: 12),
-              Text('Keranjang masih kosong', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-              SizedBox(height: 6),
-              Text('Pilih produk lokal lalu tekan Tambah ke Keranjang.', textAlign: TextAlign.center),
-            ]),
-          ),
-        );
+        if (items.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.shopping_basket_outlined, size: 56, color: Color(0xFFD20A2E)),
+                SizedBox(height: 12),
+                Text('Keranjang masih kosong', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                SizedBox(height: 6),
+                Text('Pilih produk lokal lalu tekan Tambah ke Keranjang.', textAlign: TextAlign.center),
+              ]),
+            ),
+          );
+        }
         return Column(children: [
           Expanded(
             child: RefreshIndicator(
