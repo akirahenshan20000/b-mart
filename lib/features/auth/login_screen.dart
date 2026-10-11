@@ -25,7 +25,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _login.text,
       _password.text,
       'BersolekMart Android',
-      expectedRole: expectedRole,
+      widget.expectedRole: widget.expectedRole,
     );
   }
 
@@ -63,9 +63,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 38),
-                  Text(expectedRole == 'driver' ? 'Masuk sebagai Driver' : expectedRole == 'customer' ? 'Masuk untuk Belanja' : 'Selamat datang kembali', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, height: 1.05)),
+                  Text(widget.expectedRole == 'driver' ? 'Masuk sebagai Driver' : widget.expectedRole == 'customer' ? 'Masuk untuk Belanja' : 'Selamat datang kembali', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, height: 1.05)),
                   const SizedBox(height: 8),
-                  Text(expectedRole == 'driver' ? 'Masuk menggunakan akun Driver BersolekMart untuk mengelola pengantaran.' : expectedRole == 'customer' ? 'Masuk menggunakan akun pembeli untuk menemukan produk UMKM lokal.' : 'Masuk menggunakan akun BersolekMart.', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.black54)),
+                  Text(widget.expectedRole == 'driver' ? 'Masuk menggunakan akun Driver BersolekMart untuk mengelola pengantaran.' : widget.expectedRole == 'customer' ? 'Masuk menggunakan akun pembeli untuk menemukan produk UMKM lokal.' : 'Masuk menggunakan akun BersolekMart.', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.black54)),
                   const SizedBox(height: 28),
                   TextField(
                     controller: _login,
@@ -97,7 +97,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                     onPressed: auth.isLoading ? null : _submit,
                     icon: auth.isLoading ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_forward_rounded),
-                    label: Text(auth.isLoading ? 'Menghubungkan…' : expectedRole == 'driver' ? 'Masuk sebagai Driver' : expectedRole == 'customer' ? 'Masuk dan Belanja' : 'Masuk ke BersolekMart'),
+                    label: Text(auth.isLoading ? 'Menghubungkan…' : widget.expectedRole == 'driver' ? 'Masuk sebagai Driver' : widget.expectedRole == 'customer' ? 'Masuk dan Belanja' : 'Masuk ke BersolekMart'),
                   ),
                   const SizedBox(height: 8),
                   TextButton(
@@ -105,7 +105,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     child: const Text('Ganti layanan'),
                   ),
                   const SizedBox(height: 10),
-                  Text(expectedRole == 'driver' ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.' : expectedRole == 'customer' ? 'Khusus akun Pembeli. Driver masuk melalui layanan Driver.' : 'Administrator, Operator, dan Merchant tetap menggunakan web/backend.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                  Text(widget.expectedRole == 'driver' ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.' : widget.expectedRole == 'customer' ? 'Khusus akun Pembeli. Driver masuk melalui layanan Driver.' : 'Administrator, Operator, dan Merchant tetap menggunakan web/backend.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
                 ],
               ),
             ),
