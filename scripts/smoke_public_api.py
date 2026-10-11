@@ -159,18 +159,11 @@ def main() -> int:
         ("/api/v1/banks/delete/1", "bank account delete"),
         ("/api/v1/driver/base-location", "driver base location"),
         ("/api/v1/driver/jobs/1/status", "driver job status command"),
+        ("/api/v1/driver/status", "driver availability status"),
     )
     for path, label in protected_post:
         status, content_type, _ = request(path, method="POST", payload={})
         report(label, "POST", path, status, content_type, "protected-json")
-
-    # The mobile app's Online/Offline toggle uses a thin API adapter over the
-    # existing Driver::status business rule. Enable this check after deploying
-    # bersolekmart-driver-availability-api-overlay.zip to the VPS.
-    if os.environ.get("BERSOLEKMART_REQUIRE_DRIVER_STATUS_API", "").strip() == "1":
-        path = "/api/v1/driver/status"
-        status, content_type, _ = request(path, method="POST", payload={"status": "available"})
-        report("driver availability status", "POST", path, status, content_type, "protected-json")
 
     if FAILURES:
         for failure in FAILURES:
