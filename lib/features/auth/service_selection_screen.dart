@@ -23,8 +23,8 @@ class WelcomeSplashScreen extends ConsumerWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.white, Color(0xFFFFEEEE), Color(0xFFD20A2E)],
-            stops: [0, .68, 1],
+            colors: [Color(0xFF19070B), Color(0xFF6D0015), Color(0xFFD20A2E)],
+            stops: [0, .58, 1],
           ),
         ),
         child: SafeArea(
@@ -33,28 +33,34 @@ class WelcomeSplashScreen extends ConsumerWidget {
             child: Column(
               children: [
                 const Spacer(),
-                Image.asset(
-                  'assets/branding/bersolek-mart-icon-512.png',
-                  width: 220,
-                  height: 220,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Icon(
-                    Icons.shopping_bag_rounded,
-                    size: 120,
-                    color: Color(0xFFD20A2E),
+                Container(
+                  width: 156,
+                  height: 156,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFF334F), Color(0xFFB60025), Color(0xFF6D0015)],
+                    ),
+                    borderRadius: BorderRadius.circular(38),
+                    border: Border.all(color: Colors.white24),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x6688001D), blurRadius: 28, offset: Offset(0, 12)),
+                    ],
                   ),
+                  child: const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
                 ),
                 const SizedBox(height: 22),
                 const Text(
                   'BersolekMart',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Color(0xFF171113)),
+                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'Marketplace Lokal, Peluang Tanpa Batas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 15, color: Color(0xFF555052)),
+                  style: TextStyle(fontSize: 15, color: Colors.white70),
                 ),
                 const Spacer(),
                 SizedBox(
