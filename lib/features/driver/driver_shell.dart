@@ -125,6 +125,8 @@ class DriverJobView {
       default:
         return readableDriverValue(status, fallback: 'Menunggu');
     }
+  }
+
   DriverJobView withStatus(String nextStatus) => DriverJobView(
     id: id,
     code: code,
@@ -137,7 +139,6 @@ class DriverJobView {
     pickup: pickup,
     dropoff: dropoff,
   );
-  }
 }
 
 class DriverShell extends ConsumerStatefulWidget {
