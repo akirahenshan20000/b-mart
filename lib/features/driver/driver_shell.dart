@@ -1668,7 +1668,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   routeDistanceMeters: _routeDistanceMeters,
                   routeDurationSeconds: _routeDurationSeconds,
                   routeReady: _routePoints.length >= 2,
-                  onNavigate: widget.job == null
+                  onFollowGps: _centerOnDriver,
+                  onNavigate: widget.job == null || destination == null
                       ? null
                       : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
                 ),
@@ -1687,7 +1688,10 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   routeDistanceMeters: _routeDistanceMeters,
                   routeDurationSeconds: _routeDurationSeconds,
                   routeReady: _routePoints.length >= 2,
-                  onNavigate: () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                  onFollowGps: _centerOnDriver,
+                  onNavigate: destination == null
+                      ? null
+                      : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
                 ),
               ),
             ),
@@ -1750,6 +1754,7 @@ class _FullscreenRouteCard extends StatelessWidget {
     required this.routeDistanceMeters,
     required this.routeDurationSeconds,
     required this.routeReady,
+    required this.onFollowGps,
     required this.onNavigate,
   });
 
@@ -1757,7 +1762,8 @@ class _FullscreenRouteCard extends StatelessWidget {
   final double? routeDistanceMeters;
   final double? routeDurationSeconds;
   final bool routeReady;
-  final VoidCallback onNavigate;
+  final VoidCallback onFollowGps;
+  final VoidCallback? onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -1818,12 +1824,22 @@ class _FullscreenRouteCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: onNavigate,
-              icon: const Icon(Icons.navigation_rounded),
-              label: const Text('Buka navigasi turn-by-turn'),
+              onPressed: onFollowGps,
+              icon: const Icon(Icons.my_location_rounded),
+              label: const Text('Ikuti GPS di peta ini'),
               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD20A2E)),
             ),
           ),
+          if (routeReady && onNavigate != null)
+            Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                onPressed: onNavigate,
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('Buka Google Maps (opsional)'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              ),
+            ),
         ],
       ),
     );
@@ -2568,7 +2584,7 @@ Future<void> _openRoadNavigation(
   LocationSnapshot? snapshot,
 }) async {
   final status = job.status.toLowerCase();
-  final goingToCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(status);
+  final goingToCustomer = const ['picked_up', 'delivering'].contains(status);
   final point = goingToCustomer ? job.dropoff : job.pickup;
   final address = goingToCustomer ? job.dropoffAddress : job.pickupAddress;
   final destination = point != null
@@ -2630,6 +2646,7 @@ class _MapSheet extends StatelessWidget {
     required this.routeDistanceMeters,
     required this.routeDurationSeconds,
     required this.routeReady,
+    required this.onFollowGps,
     required this.onNavigate,
   });
 
@@ -2640,6 +2657,7 @@ class _MapSheet extends StatelessWidget {
   final double? routeDistanceMeters;
   final double? routeDurationSeconds;
   final bool routeReady;
+  final VoidCallback onFollowGps;
   final VoidCallback? onNavigate;
 
   @override
@@ -2759,11 +2777,19 @@ class _MapSheet extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: onNavigate,
-                icon: const Icon(Icons.navigation_rounded),
-                label: const Text('Buka navigasi turn-by-turn'),
+                onPressed: onFollowGps,
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('Ikuti GPS di peta ini'),
               ),
             ),
+            if (routeReady && onNavigate != null)
+              Center(
+                child: TextButton.icon(
+                  onPressed: onNavigate,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Buka Google Maps (opsional)'),
+                ),
+              ),
           ],
         ),
       ),
