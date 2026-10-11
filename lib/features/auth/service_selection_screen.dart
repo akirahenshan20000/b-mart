@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'login_screen.dart';
+
 final selectedServiceProvider =
     NotifierProvider<SelectedServiceController, String?>(SelectedServiceController.new);
 
@@ -149,32 +151,7 @@ class _LoginRoute extends StatelessWidget {
   final String role;
 
   @override
-  Widget build(BuildContext context) {
-    // Import locally to keep the service-selection screen independent of auth state.
-    return _LoginScreenBridge(role: role);
-  }
-}
-
-class _LoginScreenBridge extends StatelessWidget {
-  const _LoginScreenBridge({required this.role});
-  final String role;
-
-  @override
-  Widget build(BuildContext context) {
-    return _buildLoginScreen(context, role);
-  }
-}
-
-// The actual route is provided by the app shell to avoid creating a second auth flow.
-Widget _buildLoginScreen(BuildContext context, String role) {
-  return const _LoginRoutePlaceholder();
-}
-
-class _LoginRoutePlaceholder extends StatelessWidget {
-  const _LoginRoutePlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
+  Widget build(BuildContext context) => LoginScreen(expectedRole: role);
 }
 
 class _ServiceCard extends StatelessWidget {
