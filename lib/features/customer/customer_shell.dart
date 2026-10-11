@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../account/account_profile_edit_page.dart';
+import '../account/member_data_pages.dart';
+import 'checkout_page.dart';
 
 /// Converts API values to readable UI text instead of exposing Map/List dumps.
 String readableApiValue(dynamic value, {String fallback = '-'}) {
@@ -111,15 +115,12 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(28),
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 22),
+            Image.asset(
+              'assets/branding/bersolek-mart-icon-512.png',
+              width: 36,
+              height: 36,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 28),
             ),
             const SizedBox(width: 10),
             const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
@@ -200,17 +201,38 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
+    Future<dynamic> loadCmsHome() async {
+      try {
+        return await api.get('/cms/home');
+      } catch (_) {
+        // CMS banner loading is optional; it must not make a working catalog disappear.
+        return null;
+      }
+    }
+
     final results = await Future.wait([
       api.get('/catalog/products', query: query),
       api.get('/catalog/categories'),
       api.baseUrl(),
+      loadCmsHome(),
     ]);
     final productPayload = results[0] as Map;
     final categoryPayload = results[1] as Map;
+    final cmsPayload = results[3];
+    final cms = cmsPayload is Map && cmsPayload['data'] is Map
+        ? Map<String, dynamic>.from(cmsPayload['data'] as Map)
+        : <String, dynamic>{};
+    final slides = cms['hero_slides'] is List
+        ? List<dynamic>.from(cms['hero_slides'] as List)
+        : cms['hero'] is Map
+            ? <dynamic>[cms['hero']]
+            : <dynamic>[];
+
     return {
       'products': catalogProductsFromPayload(productPayload),
       'categories': List<dynamic>.from(categoryPayload['data'] as List? ?? const []),
       'apiBase': results[2] as String,
+      'heroSlides': slides,
     };
   }
 
@@ -239,26 +261,9 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFD20A2E), Color(0xFFEF5368)]),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Icon(Icons.location_on_rounded, color: Colors.white, size: 17),
-                      SizedBox(width: 5),
-                      Text('Kota Probolinggo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                    ]),
-                    SizedBox(height: 12),
-                    Text('UMKM Lokal, Pilihan Terbaik', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
-                    SizedBox(height: 5),
-                    Text('Belanja produk lokal dan dukung usaha di sekitar kita.', style: TextStyle(color: Colors.white, height: 1.35)),
-                  ],
-                ),
+              _CmsHeroCarousel(
+                slides: List<dynamic>.from(data['heroSlides'] as List? ?? const []),
+                apiBase: apiBase,
               ),
               const SizedBox(height: 16),
               TextField(
@@ -666,9 +671,12 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
                 ])),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Checkout tetap mengikuti validasi alamat dan lokasi yang berlaku pada PWA. Fitur checkout mobile belum diaktifkan.')),
-                  ),
+                  onPressed: () async {
+                    final created = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute<bool>(builder: (_) => const CustomerCheckoutPage()),
+                    );
+                    if (created == true && mounted) await _refresh();
+                  },
                   child: const Text('Lanjut Checkout'),
                 ),
               ]),
@@ -678,6 +686,181 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
       },
     ),
   );
+}
+
+
+
+class _CmsHeroCarousel extends StatefulWidget {
+  const _CmsHeroCarousel({required this.slides, required this.apiBase});
+
+  final List<dynamic> slides;
+  final String apiBase;
+
+  @override
+  State<_CmsHeroCarousel> createState() => _CmsHeroCarouselState();
+}
+
+class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
+  final PageController _controller = PageController();
+  Timer? _timer;
+  int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CmsHeroCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.slides.length != widget.slides.length) {
+      _index = 0;
+      if (_controller.hasClients) _controller.jumpToPage(0);
+    }
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    if (widget.slides.length < 2) return;
+    _timer = Timer.periodic(const Duration(milliseconds: 6500), (_) {
+      if (!mounted || !_controller.hasClients || widget.slides.length < 2) return;
+      final next = (_index + 1) % widget.slides.length;
+      _controller.animateToPage(next, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+    });
+  }
+
+  double _ratio(Map<String, dynamic> slide) {
+    final ratio = double.tryParse(slide['media_ratio']?.toString() ?? '');
+    if (ratio != null && ratio > 0) return ratio;
+    final width = double.tryParse(slide['media_width']?.toString() ?? '');
+    final height = double.tryParse(slide['media_height']?.toString() ?? '');
+    if (width != null && height != null && width > 0 && height > 0) return width / height;
+    return 2.0;
+  }
+
+  Future<void> _openTarget(String raw) async {
+    final target = raw.trim();
+    if (target.isEmpty) return;
+    final candidate = Uri.tryParse(target);
+    final uri = candidate != null && candidate.hasScheme ? candidate : Uri.parse('https://bersolekmart.com').resolve(target);
+    if (uri.scheme != 'https' && uri.scheme != 'http') return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tautan banner belum dapat dibuka.')));
+    }
+  }
+
+  Widget _bannerImage(String path, {required BoxFit fit, required double height}) {
+    final url = resolveMediaUrl(path, widget.apiBase);
+    if (url.isEmpty || url.toLowerCase().split('?').first.endsWith('.svg')) {
+      return Container(height: height, alignment: Alignment.center, color: const Color(0xFFF6EDEF),
+        child: const Icon(Icons.image_not_supported_outlined, size: 36, color: Color(0xFFB7AEB0)));
+    }
+    return Image.network(url, height: height, width: double.infinity, fit: fit,
+      errorBuilder: (_, _, _) => Container(height: height, alignment: Alignment.center, color: const Color(0xFFF6EDEF),
+        child: const Text('Banner tidak dapat dimuat', style: TextStyle(color: Colors.black54))),
+      loadingBuilder: (context, child, progress) => progress == null ? child : Container(
+        height: height, color: const Color(0xFFF6EDEF), alignment: Alignment.center,
+        child: const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.slides.isEmpty) return const SizedBox.shrink();
+    final safeIndex = _index.clamp(0, widget.slides.length - 1);
+    return Column(children: [
+      SizedBox(
+        width: double.infinity,
+        child: PageView.builder(
+          controller: _controller,
+          itemCount: widget.slides.length,
+          onPageChanged: (value) => setState(() => _index = value),
+          itemBuilder: (context, index) {
+            final slide = Map<String, dynamic>.from(widget.slides[index] as Map);
+            final image = (slide['image_path'] ?? '').toString();
+            final ratio = _ratio(slide);
+            final wideImage = ratio >= 1.9;
+            final height = wideImage ? 175.0 : 190.0;
+            final target = (slide['target_url'] ?? '').toString();
+            if (wideImage) {
+              return Material(
+                color: const Color(0xFFF6EDEF), borderRadius: BorderRadius.circular(18), clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: target.trim().isEmpty ? null : () => _openTarget(target),
+                  child: AspectRatio(aspectRatio: ratio.clamp(1.45, 2.7), child: _bannerImage(image, fit: BoxFit.contain, height: height)),
+                ),
+              );
+            }
+            final title = (slide['title'] ?? '').toString().trim();
+            final eyebrow = (slide['eyebrow'] ?? '').toString().trim();
+            final subtitle = (slide['subtitle'] ?? slide['body'] ?? '').toString().trim();
+            final cta = (slide['cta_label'] ?? '').toString().trim();
+            return Container(
+              constraints: const BoxConstraints(minHeight: 172),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFD20A2E), Color(0xFF7D0018)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(18)),
+              child: Row(children: [
+                Expanded(flex: 6, child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (eyebrow.isNotEmpty) ...[
+                      Text(eyebrow.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                      const SizedBox(height: 5),
+                    ],
+                    if (title.isNotEmpty) Text(title, maxLines: 3, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 20, height: 1.13, fontWeight: FontWeight.w900)),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25)),
+                    ],
+                    if (cta.isNotEmpty && target.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Align(alignment: Alignment.centerLeft, child: TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF7D0018), backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                        onPressed: () => _openTarget(target),
+                        child: Text(cta, style: const TextStyle(fontWeight: FontWeight.w800)))),
+                    ],
+                  ],
+                )),
+                const SizedBox(width: 10),
+                Expanded(flex: 4, child: ClipRRect(borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(height: height - 28, child: _bannerImage(image, fit: BoxFit.contain, height: height - 28)))),
+              ]),
+            );
+          },
+        ),
+      ),
+      if (widget.slides.length > 1) ...[
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: List<Widget>.generate(widget.slides.length, (index) {
+          final selected = safeIndex == index;
+          return GestureDetector(
+            onTap: () => _controller.animateToPage(index, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180), margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: selected ? 22 : 7, height: 7,
+              decoration: BoxDecoration(color: selected ? const Color(0xFFD20A2E) : const Color(0xFFD8C6CA), borderRadius: BorderRadius.circular(8))));
+        })),
+      ],
+    ]);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
 }
 
 class CustomerCategories extends ConsumerStatefulWidget {
@@ -806,11 +989,11 @@ class CustomerProfile extends ConsumerWidget {
   }
 
   void _openAddresses(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MemberAddressBookPage()));
   }
 
   void _openBanks(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerBankAccountsPage()));
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BankAccountsPage(title: 'Rekening')));
   }
 
   @override
