@@ -18,11 +18,44 @@ class BersolekMartApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF16A56A)),
-        scaffoldBackgroundColor: const Color(0xFFF4F7F6),
-        appBarTheme: const AppBarTheme(centerTitle: false, surfaceTintColor: Colors.transparent),
-        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-        cardTheme: const CardThemeData(margin: EdgeInsets.zero),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFD20A2E),
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: const Color(0xFFD20A2E),
+          onPrimary: Colors.white,
+          secondary: const Color(0xFF171717),
+          surface: Colors.white,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF7F4F4),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          backgroundColor: Color(0xFF171113),
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: const Color(0xFF171113),
+          indicatorColor: const Color(0xFFD20A2E),
+          labelTextStyle: WidgetStateProperty.resolveWith((states) =>
+            TextStyle(
+              color: states.contains(WidgetState.selected) ? Colors.white : Colors.white70,
+              fontWeight: states.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500,
+            )),
+          iconTheme: WidgetStateProperty.resolveWith((states) =>
+            IconThemeData(color: states.contains(WidgetState.selected) ? Colors.white : Colors.white70)),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          filled: true,
+          fillColor: const Color(0xFFFFF8F8),
+        ),
+        cardTheme: CardThemeData(
+          margin: EdgeInsets.zero,
+          color: Colors.white,
+          elevation: 1,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        ),
       ),
       home: auth.when(
         loading: () => const _Splash(),
