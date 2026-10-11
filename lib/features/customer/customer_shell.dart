@@ -1631,6 +1631,13 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Alamat Pengiriman')),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: () => _editAddress(),
+      backgroundColor: const Color(0xFFD20A2E),
+      foregroundColor: Colors.white,
+      icon: const Icon(Icons.add_location_alt_outlined),
+      label: const Text('Tambah alamat'),
+    ),
     body: FutureBuilder<List<dynamic>>(
       future: _future,
       builder: (context, snapshot) {
@@ -1651,7 +1658,7 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
                 SizedBox(height: 12),
                 Text('Belum ada alamat tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
                 SizedBox(height: 6),
-                Text('Pengelolaan alamat perlu endpoint simpan yang sesuai dengan PWA.', textAlign: TextAlign.center),
+                Text('Simpan alamat dengan kecamatan, kelurahan, dan titik GPS bila tersedia.', textAlign: TextAlign.center),
               ]),
             ),
           );
