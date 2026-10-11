@@ -156,7 +156,7 @@ class _DriverBaseLocationPageState extends ConsumerState<DriverBaseLocationPage>
             const SizedBox(height: 16),
             const Text('Radius layanan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
             Text('${_radius.round()} km', style: const TextStyle(color: Colors.black54)),
-            Slider(value: _radius.clamp(1, 30), min: 1, max: 30, divisions: 29, label: '${_radius.round()} km', onChanged: (value) => setState(() => _radius = value)),
+            Slider(value: _radius.clamp(1, 30).toDouble(), min: 1, max: 30, divisions: 29, label: '${_radius.round()} km', onChanged: (value) => setState(() => _radius = value)),
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: _locating ? null : _captureGps,
