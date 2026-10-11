@@ -98,6 +98,8 @@ class LocationGuard {
       'speed_accuracy_mps': position.speedAccuracy,
       'bearing': position.heading,
       'captured_at': position.timestamp.toUtc().toIso8601String(),
+      'client_ts': position.timestamp.millisecondsSinceEpoch ~/ 1000,
+      'mock_location': false,
       'is_mocked': false,
       'movement_anomaly': anomaly,
     };
