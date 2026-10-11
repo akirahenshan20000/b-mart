@@ -718,23 +718,27 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _ErrorPanel(
-          message: 'Alamat belum dapat dimuat. Pastikan endpoint API /addresses sudah tersedia di server.',
-          onRetry: () => setState(() => _future = _load()),
-        );
+        if (snapshot.hasError) {
+          return _ErrorPanel(
+            message: 'Alamat belum dapat dimuat. Pastikan endpoint API /addresses sudah tersedia di server.',
+            onRetry: () => setState(() => _future = _load()),
+          );
+        }
         final addresses = snapshot.data ?? const [];
-        if (addresses.isEmpty) return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.location_off_outlined, size: 52, color: Color(0xFFD20A2E)),
-              SizedBox(height: 12),
-              Text('Belum ada alamat tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
-              SizedBox(height: 6),
-              Text('Pengelolaan alamat perlu endpoint simpan yang sesuai dengan PWA.', textAlign: TextAlign.center),
-            ]),
-          ),
-        );
+        if (addresses.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.location_off_outlined, size: 52, color: Color(0xFFD20A2E)),
+                SizedBox(height: 12),
+                Text('Belum ada alamat tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
+                SizedBox(height: 6),
+                Text('Pengelolaan alamat perlu endpoint simpan yang sesuai dengan PWA.', textAlign: TextAlign.center),
+              ]),
+            ),
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: addresses.length,
@@ -793,23 +797,27 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _ErrorPanel(
-          message: 'Rekening belum dapat dimuat. Endpoint API /banks belum terverifikasi pada server.',
-          onRetry: () => setState(() => _future = _load()),
-        );
+        if (snapshot.hasError) {
+          return _ErrorPanel(
+            message: 'Rekening belum dapat dimuat. Endpoint API /banks belum terverifikasi pada server.',
+            onRetry: () => setState(() => _future = _load()),
+          );
+        }
         final accounts = snapshot.data ?? const [];
-        if (accounts.isEmpty) return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFFD20A2E)),
-              SizedBox(height: 12),
-              Text('Belum ada rekening tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
-              SizedBox(height: 6),
-              Text('Pengelolaan rekening perlu endpoint API yang terhubung ke data PWA.', textAlign: TextAlign.center),
-            ]),
-          ),
-        );
+        if (accounts.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFFD20A2E)),
+                SizedBox(height: 12),
+                Text('Belum ada rekening tersimpan.', style: TextStyle(fontWeight: FontWeight.w800)),
+                SizedBox(height: 6),
+                Text('Pengelolaan rekening perlu endpoint API yang terhubung ke data PWA.', textAlign: TextAlign.center),
+              ]),
+            ),
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: accounts.length,
