@@ -93,7 +93,8 @@ class DriverJobView {
   bool get isActive {
     final value = status.toLowerCase();
     if (isCompleted || isNew) return false;
-    return value == 'accepted' ||
+    return value == 'assigned' ||
+        value == 'accepted' ||
         value == 'picking_up' ||
         value == 'picked_up' ||
         value == 'delivering' ||
@@ -163,6 +164,8 @@ class _DriverShellState extends ConsumerState<DriverShell> {
   List<DriverJobView> _jobs = const [];
   DriverJobView? _selectedJob;
   bool _online = false;
+  bool _mapFullscreen = false;
+  Timer? _jobPoller;
   bool _loading = true;
   String? _error;
 
@@ -178,13 +181,18 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       }
     });
     _loadJobs();
+    _jobPoller = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && _online) _loadJobs(silent: true);
+    });
   }
 
-  Future<void> _loadJobs() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadJobs({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final payload = await ref.read(apiClientProvider).get('/driver/jobs');
       final raw = List<dynamic>.from(payload['data'] as List? ?? const []);
@@ -208,6 +216,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
           );
         }
         _loading = false;
+        _error = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -295,34 +304,69 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   Future<void> _setOnline(bool value) async {
     if (!value) {
+      // Stop device GPS immediately, then ask the backend to clear server availability.
       await _guard.stop();
       if (mounted) setState(() => _online = false);
+      try {
+        await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Anda offline. Status server sudah diperbarui.')),
+          );
+        }
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFF8A001D),
+            content: Text('GPS perangkat dihentikan, tetapi status server belum terkonfirmasi. Periksa koneksi dan coba lagi.'),
+          ),
+        );
+      }
       return;
     }
 
     try {
+      // Request the GPS permission/stream first; the driver is only shown Online after
+      // the existing web-equivalent availability rule is confirmed by the API.
       await _guard.start();
+      try {
+        await ref.read(apiClientProvider).post('/driver/status', {'status': 'available'});
+      } catch (_) {
+        await _guard.stop();
+        rethrow;
+      }
       if (!mounted) return;
       setState(() => _online = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Anda sekarang online. Lokasi mulai dipantau.')),
+        const SnackBar(content: Text('Anda online. Status server aktif dan GPS mulai dipantau.')),
       );
     } catch (error) {
+      await _guard.stop();
       if (!mounted) return;
+      setState(() => _online = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Status online gagal diperbarui. Periksa izin lokasi dan koneksi.')),
+        const SnackBar(
+          backgroundColor: Color(0xFF8A001D),
+          content: Text('Belum dapat Online. Periksa izin GPS dan koneksi server, lalu coba lagi.'),
+        ),
       );
     }
   }
 
   Future<void> _setOfflineForMock() async {
     await _guard.stop();
+    try {
+      await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+    } catch (_) {
+      if (kDebugMode) debugPrint('[BersolekMart Driver] server offline status could not be confirmed after mock GPS.');
+    }
     if (!mounted) return;
     setState(() => _online = false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         backgroundColor: Color(0xFFD32F2F),
-        content: Text('Mock location terdeteksi. Anda otomatis offline.'),
+        content: Text('Mock location terdeteksi. GPS dihentikan dan driver dibuat offline.'),
       ),
     );
   }
@@ -346,7 +390,12 @@ class _DriverShellState extends ConsumerState<DriverShell> {
         onSelect: _openJobDetail,
         onRefresh: _loadJobs,
       ),
-      DriverMapPage(snapshot: _snapshot, job: _selectedJob),
+      DriverMapPage(
+        snapshot: _snapshot,
+        job: _selectedJob,
+        fullscreen: _mapFullscreen,
+        onFullscreenChanged: (value) => setState(() => _mapFullscreen = value),
+      ),
       DriverHistory(jobs: _jobs),
       DriverProfile(snapshot: _snapshot, onOpenMap: () => setState(() => _index = 2)),
     ];
@@ -354,9 +403,12 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: _mapFullscreen ? null : NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) => setState(() {
+          _mapFullscreen = false;
+          _index = value;
+        }),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -390,6 +442,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   @override
   void dispose() {
+    _jobPoller?.cancel();
     _locationSubscription?.cancel();
     _guard.dispose();
     super.dispose();
@@ -707,8 +760,8 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
       case 'picked_up': return 2;
       case 'delivering': return 3;
       case 'arrived':
-      case 'delivered':
-      case 'completed': return 4;
+      case 'delivered': return 4;
+      case 'completed': return 5;
       default: return 0;
     }
   }
@@ -878,11 +931,12 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
                     icon: Icons.route_outlined,
                     child: Column(
                       children: [
-                        _DriverProgressStep(label: 'Order tersedia', subtitle: 'Menunggu penugasan dari server', index: 0, current: _stage),
-                        _DriverProgressStep(label: 'Ditugaskan ke driver', subtitle: 'Order sudah diklaim atau ditugaskan', index: 1, current: _stage),
+                        _DriverProgressStep(label: 'Order tersedia', subtitle: 'Menunggu penugasan atau klaim driver', index: 0, current: _stage),
+                        _DriverProgressStep(label: 'Diterima driver', subtitle: 'Driver mengonfirmasi penerimaan order', index: 1, current: _stage),
                         _DriverProgressStep(label: 'Pickup merchant', subtitle: 'Menuju merchant dan mengambil pesanan', index: 2, current: _stage),
                         _DriverProgressStep(label: 'Pengantaran', subtitle: 'Menuju alamat pelanggan', index: 3, current: _stage),
-                        _DriverProgressStep(label: 'Selesai', subtitle: 'Status akhir dikonfirmasi oleh server', index: 4, current: _stage, last: true),
+                        _DriverProgressStep(label: 'Bukti pengantaran', subtitle: 'Serah-terima dicatat oleh backend', index: 4, current: _stage),
+                        _DriverProgressStep(label: 'Selesai', subtitle: 'Transaksi pengantaran selesai di server', index: 5, current: _stage, last: true),
                       ],
                     ),
                   ),
@@ -1099,6 +1153,7 @@ class DriverMapPage extends StatefulWidget {
   final LocationSnapshot? snapshot;
   final DriverJobView? job;
   final bool fullscreen;
+  final ValueChanged<bool>? onFullscreenChanged;
 
   @override
   State<DriverMapPage> createState() => _DriverMapPageState();
@@ -1350,20 +1405,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
     _maybeLoadRoute(force: true);
   }
 
-  void _openFullscreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => Scaffold(
-          backgroundColor: const Color(0xFF171113),
-          body: DriverMapPage(
-            snapshot: widget.snapshot,
-            job: widget.job,
-            fullscreen: true,
-          ),
-        ),
-      ),
-    );
-  }
+  void _openFullscreen() => widget.onFullscreenChanged?.call(true);
+
+  void _closeFullscreen() => widget.onFullscreenChanged?.call(false);
 
   @override
   Widget build(BuildContext context) {
@@ -1475,7 +1519,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   _MapActionButton(
                     icon: Icons.arrow_back_rounded,
                     tooltip: 'Kembali ke peta order',
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _closeFullscreen,
                   )
                 else
                   _MapChip(
