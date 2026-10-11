@@ -30,7 +30,7 @@ if missing:
     text = text[:marker.start()] + '\n'.join(missing) + '\n    ' + text[marker.start():]
 
 if 'android:usesCleartextTraffic=' not in text:
-    text = re.sub(r'<application\b', '<application android:usesCleartextTraffic="true"', text, count=1)
+    text = re.sub(r'<application\b', '<application android:usesCleartextTraffic="false"', text, count=1)
 
 manifest.write_text(text, encoding='utf-8')
 
