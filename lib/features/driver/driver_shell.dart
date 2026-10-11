@@ -837,77 +837,184 @@ class DriverHistory extends StatelessWidget {
 }
 
 class DriverProfile extends ConsumerWidget {
-  const DriverProfile({super.key});
+  const DriverProfile({
+    super.key,
+    required this.snapshot,
+    required this.onOpenMap,
+  });
+
+  final LocationSnapshot? snapshot;
+  final VoidCallback onOpenMap;
+
+  void _openDetails(BuildContext context, String title, IconData icon, Map<String, dynamic> user, List<String> keys, String emptyText) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => _DriverAccountDetailPage(title: title, icon: icon, user: user, keys: keys, emptyText: emptyText),
+    ));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(authControllerProvider).asData?.value;
     final user = session?.user ?? const <String, dynamic>{};
+    final name = readableDriverValue(user['full_name'], fallback: 'Driver');
+
+    Widget tile(IconData icon, String title, String subtitle, VoidCallback onTap) => Card(
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(color: const Color(0xFFE0F5EA), borderRadius: BorderRadius.circular(13)),
+          child: Icon(icon, color: const Color(0xFF147D58)),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+    );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Akun')),
+      appBar: AppBar(title: const Text('Akun Driver')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 110),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 30,
-                    child: Text(
-                      readableDriverValue(user['full_name'], fallback: 'D').substring(0, 1).toUpperCase(),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          readableDriverValue(user['full_name']),
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Driver BersolekMart',
-                          style: TextStyle(color: Colors.black54),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF0E6D50), Color(0xFF123C32)]),
+              borderRadius: BorderRadius.circular(22),
             ),
+            child: Row(children: [
+              CircleAvatar(
+                radius: 31,
+                backgroundColor: Colors.white24,
+                child: Text(name.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                const Text('Driver BersolekMart', style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 7),
+                Text(readableDriverValue(user['phone'] ?? user['email']),
+                  style: const TextStyle(color: Colors.white)),
+              ])),
+            ]),
           ),
-          const SizedBox(height: 12),
-          const _AccountTile(
-            icon: Icons.shield_outlined,
-            title: 'Keamanan lokasi',
-            subtitle: 'Deteksi mock location dan anomali pergerakan aktif',
-          ),
-          const _AccountTile(
-            icon: Icons.map_outlined,
-            title: 'Peta',
-            subtitle: 'OpenStreetMap dengan lokasi perangkat',
-          ),
-          const _AccountTile(
-            icon: Icons.support_agent_outlined,
-            title: 'Bantuan Driver',
-            subtitle: 'Panduan order, pickup, dan pengantaran',
-          ),
-          const SizedBox(height: 14),
-          FilledButton.tonalIcon(
+          const SizedBox(height: 20),
+          const Text('Akun dan Pengaturan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          tile(Icons.person_outline_rounded, 'Profil Saya', 'Informasi akun dan kontak',
+            () => _openDetails(context, 'Profil Saya', Icons.person_outline_rounded, user,
+              const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada respons akun.')),
+          const SizedBox(height: 8),
+          tile(Icons.two_wheeler_rounded, 'Kendaraan', 'Informasi kendaraan yang terdaftar',
+            () => _openDetails(context, 'Kendaraan', Icons.two_wheeler_rounded, user,
+              const ['vehicle', 'vehicle_type', 'vehicle_plate', 'plate_number', 'license_plate'],
+              'Data kendaraan belum tersedia pada respons akun mobile.')),
+          const SizedBox(height: 8),
+          tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Informasi rekening driver',
+            () => _openDetails(context, 'Rekening Pencairan', Icons.account_balance_outlined, user,
+              const ['bank_account', 'bank_name', 'bank_code', 'account_name', 'account_number'],
+              'Data rekening belum tersedia pada respons akun mobile. Endpoint perubahan rekening harus diverifikasi sebelum fitur simpan diaktifkan.')),
+          const SizedBox(height: 8),
+          tile(Icons.shield_outlined, 'Keamanan Lokasi',
+            snapshot?.mocked == true ? 'Lokasi mencurigakan terdeteksi' : 'Status pemantauan lokasi perangkat',
+            () => _openDetails(context, 'Keamanan Lokasi', Icons.shield_outlined, {
+              'status': snapshot == null ? 'Belum ada data GPS' : snapshot!.mocked ? 'Mock location terdeteksi' : 'Tidak terdeteksi sebagai mock pada pemeriksaan terakhir',
+              'akurasi': snapshot == null ? null : '${snapshot!.position.accuracy.toStringAsFixed(0)} meter',
+              'pergerakan': snapshot == null ? null : snapshot!.movementAnomaly ? 'Perlu diverifikasi' : 'Tidak ada anomali pada pemeriksaan terakhir',
+            }, const ['status', 'akurasi', 'pergerakan'], 'Status lokasi belum tersedia.')),
+          const SizedBox(height: 8),
+          tile(Icons.map_outlined, 'Peta dan Navigasi', 'Buka peta order yang dipilih', onOpenMap),
+          const SizedBox(height: 8),
+          tile(Icons.settings_outlined, 'Pengaturan', 'Preferensi aplikasi dan privasi',
+            () => _openDetails(context, 'Pengaturan', Icons.settings_outlined, const <String, dynamic>{},
+              const [], 'Pengaturan akun tersinkronisasi belum tersedia dari API mobile.')),
+          const SizedBox(height: 8),
+          tile(Icons.support_agent_outlined, 'Bantuan Driver', 'Panduan penggunaan aplikasi',
+            () => _openDetails(context, 'Bantuan Driver', Icons.support_agent_outlined, const <String, dynamic>{},
+              const [], 'Untuk panduan order, pickup, dan pengantaran, gunakan kanal bantuan resmi BersolekMart.')),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFD20A2E),
+              side: const BorderSide(color: Color(0xFFD20A2E)),
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            icon: const Icon(Icons.logout),
-            label: const Text('Keluar'),
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Keluar dari akun'),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DriverAccountDetailPage extends StatelessWidget {
+  const _DriverAccountDetailPage({
+    required this.title,
+    required this.icon,
+    required this.user,
+    required this.keys,
+    required this.emptyText,
+  });
+
+  final String title;
+  final IconData icon;
+  final Map<String, dynamic> user;
+  final List<String> keys;
+  final String emptyText;
+
+  String _label(String key) {
+    const labels = {
+      'full_name': 'Nama lengkap', 'name': 'Nama', 'email': 'Email',
+      'phone': 'Nomor telepon', 'nik': 'NIK', 'vehicle': 'Kendaraan',
+      'vehicle_type': 'Jenis kendaraan', 'vehicle_plate': 'Nomor polisi',
+      'plate_number': 'Nomor polisi', 'license_plate': 'Nomor polisi',
+      'bank_account': 'Rekening', 'bank_name': 'Nama bank', 'bank_code': 'Kode bank',
+      'account_name': 'Nama pemilik rekening', 'account_number': 'Nomor rekening',
+      'status': 'Status lokasi', 'akurasi': 'Akurasi GPS', 'pergerakan': 'Pemeriksaan pergerakan',
+    };
+    return labels[key] ?? key.replaceAll('_', ' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fields = keys.where((key) => user[key] != null && readableDriverValue(user[key], fallback: '').isNotEmpty).toList();
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: fields.isEmpty
+          ? Center(child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 52, color: const Color(0xFF147D58)),
+                const SizedBox(height: 14),
+                Text(emptyText, textAlign: TextAlign.center, style: const TextStyle(height: 1.5)),
+              ]),
+            ))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                for (final key in fields)
+                  Card(child: ListTile(
+                    title: Text(_label(key), style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Text(readableDriverValue(user[key]), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                    ),
+                  )),
+                const SizedBox(height: 10),
+                const Text(
+                  'Halaman ini menampilkan data yang tersedia di sesi/API akun. Perubahan hanya diaktifkan setelah endpoint backend terkait terverifikasi.',
+                  style: TextStyle(color: Colors.black54, height: 1.45),
+                ),
+              ],
+            ),
     );
   }
 }
