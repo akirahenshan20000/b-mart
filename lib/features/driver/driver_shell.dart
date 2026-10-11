@@ -11,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/location/location_guard.dart';
 import '../account/account_profile_edit_page.dart';
+import '../account/member_data_pages.dart';
+import 'driver_base_location_page.dart';
 
 /// Converts structured API fields to human-readable text for driver screens.
 String readableDriverValue(dynamic value, {String fallback = '-'}) {
@@ -886,7 +888,11 @@ class DriverProfile extends ConsumerWidget {
   }
 
   void _openBanksPage(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverBankAccountsPage()));
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BankAccountsPage(title: 'Rekening Pencairan')));
+  }
+
+  void _openBaseLocationPage(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverBaseLocationPage()));
   }
 
   void _openDetails(BuildContext context, String title, IconData icon, Map<String, dynamic> user, List<String> keys, String emptyText) {
@@ -962,8 +968,16 @@ class DriverProfile extends ConsumerWidget {
           tile(Icons.two_wheeler_rounded, 'Kendaraan', 'Informasi kendaraan yang terdaftar',
             () => _openVehiclePage(context)),
           const SizedBox(height: 8),
-          tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Informasi rekening driver',
+          tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Tambah atau kelola rekening driver',
             () => _openBanksPage(context)),
+          const SizedBox(height: 8),
+          tile(Icons.location_on_outlined, 'Alamat Akun', 'Tambah, edit, dan pilih alamat driver',
+            () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => const MemberAddressBookPage(title: 'Alamat Driver'),
+            ))),
+          const SizedBox(height: 8),
+          tile(Icons.home_work_outlined, 'Alamat dan Titik Pangkal', 'Simpan GPS pangkal dan radius layanan driver',
+            () => _openBaseLocationPage(context)),
           const SizedBox(height: 8),
           tile(Icons.shield_outlined, 'Keamanan Lokasi',
             snapshot?.mocked == true ? 'Lokasi mencurigakan terdeteksi' : 'Status pemantauan lokasi perangkat',
@@ -1581,16 +1595,16 @@ Future<void> _openRoadNavigation(BuildContext context, DriverJobView job) async 
     'travelmode': 'driving',
   });
   try {
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final launched = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
     if (!launched && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Navigasi tidak dapat dibuka. Periksa aplikasi peta atau browser.')),
+        const SnackBar(content: Text('Halaman navigasi tidak dapat dibuka di perangkat ini. Coba buka tautan peta dari browser atau periksa aplikasi peta.')),
       );
     }
   } catch (_) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Navigasi gagal dibuka. Periksa koneksi dan aplikasi peta.')),
+        const SnackBar(content: Text('Navigasi gagal dibuka. Aplikasi tetap aktif; periksa koneksi dan dukungan browser/peta.')),
       );
     }
   }

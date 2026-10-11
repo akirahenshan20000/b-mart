@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth/auth_controller.dart';
+
 
 final selectedServiceProvider =
     NotifierProvider<SelectedServiceController, String?>(SelectedServiceController.new);
@@ -33,34 +35,19 @@ class WelcomeSplashScreen extends ConsumerWidget {
             child: Column(
               children: [
                 const Spacer(),
-                Container(
-                  width: 156,
-                  height: 156,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFFF334F), Color(0xFFB60025), Color(0xFF6D0015)],
-                    ),
-                    borderRadius: BorderRadius.circular(38),
-                    border: Border.all(color: Colors.white24),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x6688001D), blurRadius: 28, offset: Offset(0, 12)),
-                    ],
-                  ),
-                  child: const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
+                Image.asset(
+                  'assets/branding/bersolek-mart-icon-512.png',
+                  width: 270,
+                  height: 210,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
                 ),
                 const SizedBox(height: 22),
-                const Text(
-                  'BersolekMart',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
-                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Marketplace Lokal, Peluang Tanpa Batas',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 15, color: Colors.white70),
+                  style: TextStyle(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 SizedBox(
@@ -117,6 +104,7 @@ class ServiceSelectionScreen extends ConsumerWidget {
               title: 'Belanja',
               subtitle: 'Temukan produk UMKM lokal dan pantau pesananmu.',
               onTap: () {
+                ref.read(authControllerProvider.notifier).clearError();
                 ref.read(selectedServiceProvider.notifier).select('customer');
                 // Root app switches to the role-specific login screen.
               },
@@ -127,6 +115,7 @@ class ServiceSelectionScreen extends ConsumerWidget {
               title: 'Driver',
               subtitle: 'Antar pesanan, kelola pengantaran, dan pantau pendapatan.',
               onTap: () {
+                ref.read(authControllerProvider.notifier).clearError();
                 ref.read(selectedServiceProvider.notifier).select('driver');
                 // Root app switches to the role-specific login screen.
               },
@@ -134,7 +123,10 @@ class ServiceSelectionScreen extends ConsumerWidget {
             const SizedBox(height: 26),
             Center(
               child: TextButton(
-                onPressed: () => ref.read(selectedServiceProvider.notifier).select(null),
+                onPressed: () {
+                  ref.read(authControllerProvider.notifier).clearError();
+                  ref.read(selectedServiceProvider.notifier).select(null);
+                },
                 child: const Text('Kembali ke halaman awal'),
               ),
             ),

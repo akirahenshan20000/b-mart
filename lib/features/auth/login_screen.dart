@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 import 'service_selection_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -15,14 +16,27 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _login = TextEditingController();
   final _password = TextEditingController();
   bool _obscure = true;
+  String? _localError;
+
+  bool get _isDriver => widget.expectedRole == 'driver';
+
+  void _clearVisibleError() {
+    if (_localError != null) setState(() => _localError = null);
+    ref.read(authControllerProvider.notifier).clearError();
+  }
 
   Future<void> _submit() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _localError = null);
+    ref.read(authControllerProvider.notifier).clearError();
     await ref.read(authControllerProvider.notifier).login(
-      _login.text,
+      _login.text.trim(),
       _password.text,
       'BersolekMart Android',
       expectedRole: widget.expectedRole,
@@ -32,81 +46,288 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
-    final errorText = auth.hasError ? '${auth.error}' : widget.message;
+    final errorText = _localError ??
+        (auth.hasError ? apiErrorMessage(auth.error!) : widget.message);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F5F6),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(16),
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 36).clamp(0.0, double.infinity).toDouble(),
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: auth.isLoading
+                              ? null
+                              : () {
+                                  ref.read(authControllerProvider.notifier).clearError();
+                                  ref.read(selectedServiceProvider.notifier).select('choose');
+                                },
+                          icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                          label: const Text('Ganti layanan'),
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset('assets/branding/bersolek-mart-icon-512.png', width: 34, height: 34),
-                          const SizedBox(width: 10),
-                          const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-                        ],
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(26),
+                          border: Border.all(color: const Color(0xFFEFE5E7)),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x0B32000D),
+                              blurRadius: 28,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 54,
+                                  height: 54,
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFE8EC),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Image.asset(
+                                    'assets/branding/bersolek-mart-adaptive-foreground.png',
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, _, _) => const Icon(
+                                      Icons.shopping_bag_rounded,
+                                      color: Color(0xFFD20A2E),
+                                      size: 32,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'BersolekMart',
+                                        style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.4,
+                                        ),
+                                      ),
+                                      SizedBox(height: 3),
+                                      Text(
+                                        'Marketplace UMKM lokal',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 28),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF0F2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isDriver ? Icons.delivery_dining_rounded : Icons.shopping_bag_outlined,
+                                    color: const Color(0xFFD20A2E),
+                                    size: 19,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _isDriver ? 'LAYANAN DRIVER' : 'LAYANAN BELANJA',
+                                    style: const TextStyle(
+                                      color: Color(0xFFD20A2E),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.7,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _isDriver ? 'Masuk sebagai Driver' : 'Selamat datang kembali',
+                              style: const TextStyle(
+                                fontSize: 27,
+                                height: 1.12,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.7,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _isDriver
+                                  ? 'Gunakan akun Driver BersolekMart untuk melihat pekerjaan pengantaran yang ditugaskan.'
+                                  : 'Masuk untuk melihat produk UMKM lokal, mengelola keranjang, dan memantau pesanan.',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                height: 1.45,
+                                color: Color(0xFF6B6265),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Form(
+                              key: _formKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  TextFormField(
+                                    controller: _login,
+                                    enabled: !auth.isLoading,
+                                    keyboardType: TextInputType.emailAddress,
+                                    textInputAction: TextInputAction.next,
+                                    autofillHints: const [AutofillHints.username],
+                                    onChanged: (_) => _clearVisibleError(),
+                                    validator: (value) => value == null || value.trim().isEmpty
+                                        ? 'Masukkan username atau email.'
+                                        : null,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Username atau email',
+                                      hintText: 'Masukkan akun BersolekMart',
+                                      prefixIcon: Icon(Icons.person_outline_rounded),
+                                      filled: true,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  TextFormField(
+                                    controller: _password,
+                                    enabled: !auth.isLoading,
+                                    obscureText: _obscure,
+                                    textInputAction: TextInputAction.done,
+                                    autofillHints: const [AutofillHints.password],
+                                    onChanged: (_) => _clearVisibleError(),
+                                    onFieldSubmitted: (_) => _submit(),
+                                    validator: (value) => value == null || value.isEmpty
+                                        ? 'Masukkan password.'
+                                        : null,
+                                    decoration: InputDecoration(
+                                      labelText: 'Password',
+                                      hintText: 'Masukkan password akun',
+                                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                                      suffixIcon: IconButton(
+                                        tooltip: _obscure ? 'Tampilkan password' : 'Sembunyikan password',
+                                        onPressed: auth.isLoading
+                                            ? null
+                                            : () => setState(() => _obscure = !_obscure),
+                                        icon: Icon(_obscure
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined),
+                                      ),
+                                      filled: true,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (errorText != null && errorText.trim().isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.all(13),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.errorContainer,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: colorScheme.error.withAlpha(36)),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.error_outline_rounded,
+                                      color: colorScheme.onErrorContainer, size: 20),
+                                    const SizedBox(width: 9),
+                                    Expanded(
+                                      child: Text(
+                                        errorText,
+                                        style: TextStyle(
+                                          height: 1.35,
+                                          color: colorScheme.onErrorContainer,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 22),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                ),
+                                onPressed: auth.isLoading ? null : _submit,
+                                icon: auth.isLoading
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.arrow_forward_rounded),
+                                label: Text(
+                                  auth.isLoading
+                                      ? 'Menghubungkan ke server…'
+                                      : _isDriver
+                                          ? 'Masuk sebagai Driver'
+                                          : 'Masuk dan Belanja',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            const Divider(height: 1),
+                            const SizedBox(height: 14),
+                            Text(
+                              _isDriver
+                                  ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.'
+                                  : 'Khusus akun Pembeli. Driver masuk melalui layanan Driver.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Administrator, Operator, dan Merchant tetap menggunakan dashboard web.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Color(0xFF82777A)),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 38),
-                  Text(widget.expectedRole == 'driver' ? 'Masuk sebagai Driver' : widget.expectedRole == 'customer' ? 'Masuk untuk Belanja' : 'Selamat datang kembali', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, height: 1.05)),
-                  const SizedBox(height: 8),
-                  Text(widget.expectedRole == 'driver' ? 'Masuk menggunakan akun Driver BersolekMart untuk mengelola pengantaran.' : widget.expectedRole == 'customer' ? 'Masuk menggunakan akun pembeli untuk menemukan produk UMKM lokal.' : 'Masuk menggunakan akun BersolekMart.', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Colors.black54)),
-                  const SizedBox(height: 28),
-                  TextField(
-                    controller: _login,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(labelText: 'Username / Email', prefixIcon: Icon(Icons.person_outline), filled: true),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _password,
-                    obscureText: _obscure,
-                    onSubmitted: (_) => _submit(),
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: const Icon(Icons.lock_outline),
-                      suffixIcon: IconButton(onPressed: () => setState(() => _obscure = !_obscure), icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off)),
-                      filled: true,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  if (errorText != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(color: Theme.of(context).colorScheme.errorContainer, borderRadius: BorderRadius.circular(14)),
-                      child: Text(errorText, style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                    onPressed: auth.isLoading ? null : _submit,
-                    icon: auth.isLoading ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_forward_rounded),
-                    label: Text(auth.isLoading ? 'Menghubungkan…' : widget.expectedRole == 'driver' ? 'Masuk sebagai Driver' : widget.expectedRole == 'customer' ? 'Masuk dan Belanja' : 'Masuk ke BersolekMart'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => ref.read(selectedServiceProvider.notifier).select('choose'),
-                    child: const Text('Ganti layanan'),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(widget.expectedRole == 'driver' ? 'Khusus akun Driver. Akun Pembeli masuk melalui layanan Belanja.' : widget.expectedRole == 'customer' ? 'Khusus akun Pembeli. Driver masuk melalui layanan Driver.' : 'Administrator, Operator, dan Merchant tetap menggunakan web/backend.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                ],
+                ),
               ),
             ),
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/auth_controller.dart';
+import '../core/network/api_client.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/service_selection_screen.dart';
 import '../features/customer/customer_shell.dart';
@@ -12,6 +13,16 @@ class BersolekMartApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen<AsyncValue<Session?>>(authControllerProvider, (previous, next) {
+      if (previous is AsyncData<Session?> &&
+          previous.value != null &&
+          next is AsyncData<Session?> &&
+          next.value == null) {
+        // A completed logout returns the user to the normal service chooser.
+        ref.read(selectedServiceProvider.notifier).select(null);
+      }
+    });
+
     final auth = ref.watch(authControllerProvider);
     final selectedService = ref.watch(selectedServiceProvider);
 
@@ -75,11 +86,29 @@ class BersolekMartApp extends ConsumerWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
       ),
-      home: auth.when(
+      // Keep the login form mounted during an API request. A full-screen
+      // splash is reserved for the initial session restore, not button loading.
+      home: auth.isLoading &&
+              (selectedService == 'customer' || selectedService == 'driver')
+          ? LoginScreen(expectedRole: selectedService)
+          : auth.when(
         loading: () => const _Splash(),
-        error: (error, _) => selectedService == 'choose'
-            ? const ServiceSelectionScreen()
-            : LoginScreen(message: '$error', expectedRole: selectedService),
+        error: (error, _) {
+          if (selectedService == 'choose') return const ServiceSelectionScreen();
+          if (selectedService == 'customer' || selectedService == 'driver') {
+            return LoginScreen(
+              message: apiErrorMessage(error),
+              expectedRole: selectedService,
+            );
+          }
+          return _SessionRestoreError(
+            message: apiErrorMessage(error),
+            onRetry: () => ref.invalidate(authControllerProvider),
+            onSignOut: () async {
+              await ref.read(authControllerProvider.notifier).logout();
+            },
+          );
+        },
         data: (session) {
           if (session == null) {
             if (selectedService == 'choose') return const ServiceSelectionScreen();
@@ -93,6 +122,63 @@ class BersolekMartApp extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _SessionRestoreError extends StatelessWidget {
+  const _SessionRestoreError({
+    required this.message,
+    required this.onRetry,
+    required this.onSignOut,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off_rounded, size: 52, color: Color(0xFFD20A2E)),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Sesi belum dapat diperiksa',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(message, textAlign: TextAlign.center),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Coba lagi'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () { onSignOut(); },
+                        child: const Text('Keluar dan masuk ulang'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _Splash extends StatelessWidget {
