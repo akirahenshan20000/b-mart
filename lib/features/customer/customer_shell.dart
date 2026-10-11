@@ -90,11 +90,12 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory),
+      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() => _index = 2)),
       CustomerCategories(onSelect: (category) => setState(() {
         _selectedCategory = category;
         _index = 0;
       })),
+      const CustomerCart(),
       const CustomerOrders(),
       const CustomerProfile(),
     ];
@@ -128,6 +129,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Belanja'),
           NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Kategori'),
+          NavigationDestination(icon: Icon(Icons.shopping_basket_outlined), selectedIcon: Icon(Icons.shopping_basket), label: 'Keranjang'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Pesanan'),
           NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Akun'),
         ],
@@ -137,8 +139,9 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
 }
 
 class CustomerHome extends ConsumerStatefulWidget {
-  const CustomerHome({super.key, this.initialCategory});
+  const CustomerHome({super.key, this.initialCategory, this.onOpenCart});
   final String? initialCategory;
+  final VoidCallback? onOpenCart;
 
   @override
   ConsumerState<CustomerHome> createState() => _CustomerHomeState();
@@ -162,6 +165,26 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     if (oldWidget.initialCategory != widget.initialCategory) {
       _category = widget.initialCategory;
       _future = _load();
+    }
+  }
+
+  Future<bool> _addToCart(Map<String, dynamic> product) async {
+    final id = int.tryParse(product['id']?.toString() ?? '') ?? 0;
+    if (id < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ini tidak memiliki ID yang valid.')));
+      return false;
+    }
+    try {
+      await ref.read(apiClientProvider).post('/cart/items', {'product_id': id, 'qty': 1});
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang.')));
+      widget.onOpenCart?.call();
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menambahkan produk. Pastikan API keranjang tersedia dan stok masih ada.')));
+      }
+      return false;
     }
   }
 
@@ -309,7 +332,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                     final image = (product['image'] ?? '').toString();
                     return InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: () => _showProduct(context, product, apiBase),
+                      onTap: () => _showProduct(context, product, apiBase, onAddToCart: () => _addToCart(product)),
                       child: Card(
                         clipBehavior: Clip.antiAlias,
                         child: Column(
@@ -434,7 +457,7 @@ double _number(dynamic value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
-void _showProduct(BuildContext context, Map<String, dynamic> product, String apiBase) {
+void _showProduct(BuildContext context, Map<String, dynamic> product, String apiBase, {required Future<bool> Function() onAddToCart}) {
   final base = _number(product['price']);
   final sale = _number(product['sale_price']);
   final price = sale > 0 && base > 0 && sale < base ? sale : base;
@@ -465,11 +488,183 @@ void _showProduct(BuildContext context, Map<String, dynamic> product, String api
             const SizedBox(height: 12),
             Text('Stok tersedia: ${product['stock'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 18),
-            const Text('Pembelian dan pembayaran mengikuti alur yang tersedia pada layanan BersolekMart.',
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  final added = await onAddToCart();
+                  if (added && context.mounted) Navigator.of(context).pop();
+                },
+                icon: const Icon(Icons.add_shopping_cart_rounded),
+                label: const Text('Tambah ke Keranjang'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text('Harga dan stok mengikuti data server BersolekMart.',
               style: TextStyle(fontSize: 12, color: Colors.black54)),
           ],
         ),
       ),
+    ),
+  );
+}
+
+class CustomerCart extends ConsumerStatefulWidget {
+  const CustomerCart({super.key});
+
+  @override
+  ConsumerState<CustomerCart> createState() => _CustomerCartState();
+}
+
+class _CustomerCartState extends ConsumerState<CustomerCart> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>> _load() async {
+    final api = ref.read(apiClientProvider);
+    final result = await Future.wait([api.get('/cart'), api.baseUrl()]);
+    final payload = result[0] as Map;
+    final data = payload['data'] is Map ? Map<String, dynamic>.from(payload['data'] as Map) : <String, dynamic>{};
+    return {'items': List<dynamic>.from(data['items'] as List? ?? const []), 'subtotal': data['subtotal'] ?? 0, 'count': data['count'] ?? 0, 'apiBase': result[1]};
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _future = _load());
+    await _future;
+  }
+
+  Future<void> _updateQty(Map<String, dynamic> item, int qty) async {
+    final id = item['id'] ?? item['line_key'];
+    if (id == null) return;
+    try {
+      await ref.read(apiClientProvider).post('/cart/update', {'item_id': id, 'qty': qty});
+      await _refresh();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jumlah produk gagal diperbarui.')));
+    }
+  }
+
+  Future<void> _remove(Map<String, dynamic> item) async {
+    final id = item['id'] ?? item['line_key'];
+    if (id == null) return;
+    try {
+      await ref.read(apiClientProvider).post('/cart/remove', {'item_id': id});
+      await _refresh();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk gagal dihapus dari keranjang.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Keranjang')),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return _ErrorPanel(
+          message: 'Keranjang belum dapat dimuat. Pastikan API cart sudah dipasang di server.',
+          onRetry: () => setState(() => _future = _load()),
+        );
+        final data = snapshot.data ?? const <String, dynamic>{};
+        final items = List<dynamic>.from(data['items'] as List? ?? const []);
+        final apiBase = data['apiBase']?.toString() ?? '';
+        if (items.isEmpty) return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(28),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.shopping_basket_outlined, size: 56, color: Color(0xFFD20A2E)),
+              SizedBox(height: 12),
+              Text('Keranjang masih kosong', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+              SizedBox(height: 6),
+              Text('Pilih produk lokal lalu tekan Tambah ke Keranjang.', textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+        return Column(children: [
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: items.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final item = Map<String, dynamic>.from(items[index] as Map);
+                  final qty = int.tryParse(item['qty']?.toString() ?? '') ?? 1;
+                  final price = _number(item['unit_price'] ?? item['variant_price'] ?? item['sale_price'] ?? item['price']);
+                  final name = readableApiValue(item['name'], fallback: 'Produk');
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(width: 84, height: 84, child: ProductImageView(path: (item['image'] ?? '').toString(), apiBase: apiBase)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 4),
+                          Text(readableApiValue(item['store_name'], fallback: 'UMKM Lokal'), style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                          const SizedBox(height: 7),
+                          Text(formatRupiah(price), style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 8),
+                          Row(children: [
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: qty > 1 ? () => _updateQty(item, qty - 1) : null,
+                              icon: const Icon(Icons.remove_circle_outline_rounded),
+                            ),
+                            Text('$qty', style: const TextStyle(fontWeight: FontWeight.w900)),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => _updateQty(item, qty + 1),
+                              icon: const Icon(Icons.add_circle_outline_rounded),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              tooltip: 'Hapus produk',
+                              onPressed: () => _remove(item),
+                              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFD20A2E)),
+                            ),
+                          ]),
+                        ])),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Color(0x11000000), blurRadius: 12, offset: Offset(0, -3))]),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  const Text('Subtotal', style: TextStyle(color: Colors.black54)),
+                  Text(formatRupiah(data['subtotal']), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                ])),
+                const SizedBox(width: 12),
+                FilledButton(
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Checkout tetap mengikuti validasi alamat dan lokasi yang berlaku pada PWA. Fitur checkout mobile belum diaktifkan.')),
+                  ),
+                  child: const Text('Lanjut Checkout'),
+                ),
+              ]),
+            ),
+          ),
+        ]);
+      },
     ),
   );
 }
