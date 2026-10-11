@@ -63,6 +63,7 @@ class DriverJobView {
     required this.id,
     required this.code,
     required this.status,
+    this.availableToAccept = false,
     required this.storeName,
     required this.customerName,
     required this.pickupAddress,
@@ -75,6 +76,7 @@ class DriverJobView {
   final String id;
   final String code;
   final String status;
+  final bool availableToAccept;
   final String storeName;
   final String customerName;
   final String pickupAddress;
@@ -90,8 +92,8 @@ class DriverJobView {
 
   bool get isActive {
     final value = status.toLowerCase();
-    return value == 'assigned' ||
-        value == 'accepted' ||
+    if (isCompleted || isNew) return false;
+    return value == 'accepted' ||
         value == 'picking_up' ||
         value == 'picked_up' ||
         value == 'delivering' ||
@@ -103,7 +105,7 @@ class DriverJobView {
 
   bool get isNew {
     final value = status.toLowerCase();
-    return value == 'available' || (value == 'assigned' && false);
+    return availableToAccept || value == 'available';
   }
 
   String get statusLabel {
@@ -135,6 +137,7 @@ class DriverJobView {
     id: id,
     code: code,
     status: nextStatus,
+    availableToAccept: availableToAccept,
     storeName: storeName,
     customerName: customerName,
     pickupAddress: pickupAddress,
@@ -255,6 +258,8 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       id: (job['id'] ?? job['job_id'] ?? '').toString(),
       code: (job['order_code'] ?? job['code'] ?? job['order_number'] ?? 'Order').toString(),
       status: readableDriverValue(job['status'] ?? job['state'], fallback: 'Menunggu'),
+      availableToAccept: job['available_to_accept'] == true ||
+          job['available_to_accept']?.toString() == '1',
       storeName: readableDriverValue(job['store_name'] ?? job['merchant_name'], fallback: 'Merchant'),
       customerName: readableDriverValue(job['customer_name'] ?? job['buyer_name'] ?? dropoff['recipient_name'], fallback: 'Pelanggan'),
       pickupAddress: readableDriverValue(job['pickup_address'] ?? job['store_address'] ?? job['origin_address']),
@@ -1101,14 +1106,248 @@ class DriverMapPage extends StatefulWidget {
 
 class _DriverMapPageState extends State<DriverMapPage> {
   final MapController _mapController = MapController();
-
   static const LatLng _fallback = LatLng(-7.7543, 113.2159);
+
+  bool _mapReady = false;
+  bool _followGps = true;
+  double _cameraZoom = 15;
+  bool _routeLoading = false;
+  String? _routeError;
+  List<LatLng> _routePoints = const [];
+  double? _routeDistanceMeters;
+  double? _routeDurationSeconds;
+  LatLng? _lastRouteOrigin;
+  LatLng? _lastRouteDestination;
+  DateTime? _lastRouteRequestAt;
+  int _routeRequestGeneration = 0;
 
   LatLng get _driverPoint {
     final position = widget.snapshot?.position;
     return position == null
         ? (widget.job?.pickup ?? widget.job?.dropoff ?? _fallback)
         : LatLng(position.latitude, position.longitude);
+  }
+
+  LatLng? get _activeDestination {
+    final job = widget.job;
+    if (job == null || job.isCompleted) return null;
+    switch (job.status.toLowerCase()) {
+      case 'available':
+      case 'assigned':
+      case 'accepted':
+      case 'picking_up':
+        return job.pickup;
+      case 'picked_up':
+      case 'delivering':
+      case 'arrived':
+        return job.dropoff;
+      default:
+        return null;
+    }
+  }
+
+  String get _destinationLabel {
+    final status = widget.job?.status.toLowerCase() ?? '';
+    if (const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(status)) {
+      return 'Pelanggan';
+    }
+    return 'Merchant';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(covariant DriverMapPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldTarget = _destinationFor(oldWidget.job);
+    final newTarget = _activeDestination;
+    final targetChanged = oldTarget?.latitude != newTarget?.latitude ||
+        oldTarget?.longitude != newTarget?.longitude ||
+        oldWidget.job?.status != widget.job?.status ||
+        oldWidget.job?.id != widget.job?.id;
+
+    final oldPosition = oldWidget.snapshot?.position;
+    final newPosition = widget.snapshot?.position;
+    if (_mapReady && newPosition != null && !newPosition.isMocked) {
+      final changed = oldPosition == null ||
+          _distanceMeters(
+            LatLng(oldPosition.latitude, oldPosition.longitude),
+            LatLng(newPosition.latitude, newPosition.longitude),
+          ) >= 2;
+      if (changed && _followGps) {
+        _mapController.move(_driverPoint, _cameraZoom);
+      }
+      if (targetChanged || changed) _maybeLoadRoute(force: targetChanged);
+    } else if (targetChanged && _mapReady) {
+      _maybeLoadRoute(force: true);
+    }
+  }
+
+  LatLng? _destinationFor(DriverJobView? job) {
+    if (job == null || job.isCompleted) return null;
+    switch (job.status.toLowerCase()) {
+      case 'available':
+      case 'assigned':
+      case 'accepted':
+      case 'picking_up':
+        return job.pickup;
+      case 'picked_up':
+      case 'delivering':
+      case 'arrived':
+        return job.dropoff;
+      default:
+        return null;
+    }
+  }
+
+  double _distanceMeters(LatLng a, LatLng b) {
+    const radius = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLng = (b.longitude - a.longitude) * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) *
+            math.sin(dLng / 2) * math.sin(dLng / 2);
+    return radius * 2 * math.atan2(math.sqrt(h), math.sqrt(math.max(0, 1 - h)));
+  }
+
+  Future<void> _maybeLoadRoute({bool force = false}) async {
+    if (!_mapReady) return;
+
+    final snapshot = widget.snapshot;
+    final position = snapshot?.position;
+    if (position == null || snapshot!.mocked) {
+      if (_routePoints.isEmpty && mounted && _routeError != 'Aktifkan GPS untuk menghitung rute dari posisi Anda.') {
+        setState(() => _routeError = 'Aktifkan GPS untuk menghitung rute dari posisi Anda.');
+      }
+      return;
+    }
+
+    final origin = LatLng(position.latitude, position.longitude);
+    final destination = _activeDestination;
+    if (destination == null) {
+      if (mounted) {
+        setState(() {
+          _routePoints = const [];
+          _routeDistanceMeters = null;
+          _routeDurationSeconds = null;
+          _routeLoading = false;
+          _routeError = widget.job == null
+              ? 'Pilih order untuk melihat rute jalan.'
+              : 'Rute tidak diperlukan untuk status order ini.';
+        });
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final destinationChanged = _lastRouteDestination == null ||
+        _distanceMeters(_lastRouteDestination!, destination) > 8;
+    final moved = _lastRouteOrigin == null ||
+        _distanceMeters(_lastRouteOrigin!, origin) >= 45;
+    final elapsed = _lastRouteRequestAt == null ||
+        now.difference(_lastRouteRequestAt!).inSeconds >= 15;
+    if (!force && !destinationChanged && !moved && !elapsed) return;
+    if (_routeLoading && !force) return;
+
+    final generation = ++_routeRequestGeneration;
+    _lastRouteOrigin = origin;
+    _lastRouteDestination = destination;
+    _lastRouteRequestAt = now;
+    setState(() {
+      _routeLoading = true;
+      _routeError = null;
+      if (destinationChanged) {
+        _routePoints = const [];
+        _routeDistanceMeters = null;
+        _routeDurationSeconds = null;
+      }
+    });
+
+    try {
+      final uri = Uri.https(
+        'router.project-osrm.org',
+        '/route/v1/driving/'
+            '${origin.longitude.toStringAsFixed(6)},${origin.latitude.toStringAsFixed(6)};'
+            '${destination.longitude.toStringAsFixed(6)},${destination.latitude.toStringAsFixed(6)}',
+        const {
+          'overview': 'full',
+          'geometries': 'geojson',
+          'steps': 'false',
+        },
+      );
+      final response = await http.get(
+        uri,
+        headers: const {'Accept': 'application/json', 'User-Agent': 'BersolekMart-Mobile/1.0'},
+      ).timeout(const Duration(seconds: 9));
+      if (response.statusCode != 200) {
+        throw FormatException('Routing service returned HTTP ${response.statusCode}.');
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['code'] != 'Ok' || decoded['routes'] is! List ||
+          (decoded['routes'] as List).isEmpty) {
+        throw const FormatException('Routing service did not return a road route.');
+      }
+      final route = Map<String, dynamic>.from((decoded['routes'] as List).first as Map);
+      final geometry = route['geometry'];
+      if (geometry is! Map || geometry['coordinates'] is! List) {
+        throw const FormatException('Road-route geometry is unavailable.');
+      }
+      final points = <LatLng>[];
+      for (final raw in geometry['coordinates'] as List) {
+        if (raw is List && raw.length >= 2) {
+          final longitude = double.tryParse(raw[0].toString());
+          final latitude = double.tryParse(raw[1].toString());
+          if (latitude != null && longitude != null &&
+              latitude.abs() <= 90 && longitude.abs() <= 180) {
+            points.add(LatLng(latitude, longitude));
+          }
+        }
+      }
+      if (points.length < 2) {
+        throw const FormatException('Road route contains insufficient geometry points.');
+      }
+      if (!mounted || generation != _routeRequestGeneration) return;
+      setState(() {
+        _routePoints = points;
+        _routeDistanceMeters = _asDouble(route['distance']);
+        _routeDurationSeconds = _asDouble(route['duration']);
+        _routeLoading = false;
+        _routeError = null;
+      });
+    } catch (error) {
+      if (!mounted || generation != _routeRequestGeneration) return;
+      setState(() {
+        _routeLoading = false;
+        _routeError = _routePoints.isEmpty
+            ? 'Rute jalan belum tersedia. Periksa koneksi atau koordinat order.'
+            : 'Rute terakhir masih ditampilkan; pembaruan rute gagal.';
+      });
+      if (kDebugMode) debugPrint('[BersolekMart Routing] ${error.runtimeType}: route refresh failed.');
+    }
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  void _centerOnDriver() {
+    final snapshot = widget.snapshot;
+    if (snapshot == null || snapshot.mocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS valid belum tersedia. Aktifkan status Online terlebih dahulu.')),
+      );
+      return;
+    }
+    setState(() => _followGps = true);
+    _cameraZoom = math.max(_cameraZoom, 15);
+    if (_mapReady) _mapController.move(_driverPoint, _cameraZoom);
+    _maybeLoadRoute(force: true);
   }
 
   void _openFullscreen() {
@@ -1128,6 +1367,10 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   @override
   Widget build(BuildContext context) {
+    final destination = _activeDestination;
+    final snapshot = widget.snapshot;
+    final hasValidGps = snapshot != null && !snapshot.mocked;
+
     return Stack(
       children: [
         FlutterMap(
@@ -1141,22 +1384,59 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     padding: const EdgeInsets.fromLTRB(56, 110, 56, 310),
                   )
                 : null,
+            onMapReady: () {
+              _mapReady = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                if (hasValidGps && _followGps) _mapController.move(_driverPoint, _cameraZoom);
+                _maybeLoadRoute(force: true);
+              });
+            },
+            onPositionChanged: (camera, hasGesture) {
+              _cameraZoom = camera.zoom;
+              if (hasGesture && _followGps && mounted) {
+                setState(() => _followGps = false);
+              }
+            },
           ),
           children: [
             TileLayer(
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.bersolekmart.mobile',
             ),
+            if (_routePoints.length >= 2) ...[
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 9,
+                    color: Colors.white.withAlpha(220),
+                  ),
+                ],
+              ),
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints,
+                    strokeWidth: 5,
+                    color: const Color(0xFFD20A2E),
+                  ),
+                ],
+              ),
+            ],
             MarkerLayer(
               markers: [
-                if (widget.snapshot?.position != null)
+                if (hasValidGps)
                   Marker(
                     point: _driverPoint,
-                    width: 50,
-                    height: 50,
-                    child: const _MapMarker(
-                      icon: Icons.navigation_rounded,
-                      color: Color(0xFF171113),
+                    width: 54,
+                    height: 54,
+                    child: Transform.rotate(
+                      angle: (snapshot.position.heading.isFinite ? snapshot.position.heading : 0) * math.pi / 180,
+                      child: const _MapMarker(
+                        icon: Icons.navigation_rounded,
+                        color: Color(0xFF171113),
+                      ),
                     ),
                   ),
                 if (widget.job?.pickup != null)
@@ -1166,7 +1446,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.storefront_rounded,
-                      color: Color(0xFFD20A2E),
+                      color: Color(0xFF147D58),
                     ),
                   ),
                 if (widget.job?.dropoff != null)
@@ -1176,15 +1456,13 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     height: 44,
                     child: const _MapMarker(
                       icon: Icons.location_on_rounded,
-                      color: Color(0xFF202020),
+                      color: Color(0xFFD20A2E),
                     ),
                   ),
               ],
             ),
             RichAttributionWidget(
-              attributions: [
-                TextSourceAttribution('OpenStreetMap contributors'),
-              ],
+              attributions: const [TextSourceAttribution('OpenStreetMap contributors')],
             ),
           ],
         ),
@@ -1200,15 +1478,15 @@ class _DriverMapPageState extends State<DriverMapPage> {
                     onPressed: () => Navigator.of(context).pop(),
                   )
                 else
-                  const _MapChip(
-                    icon: Icons.my_location_rounded,
-                    label: 'Peta pengantaran',
+                  _MapChip(
+                    icon: hasValidGps ? Icons.my_location_rounded : Icons.location_searching_rounded,
+                    label: widget.job == null ? 'Peta pengantaran' : 'Menuju $_destinationLabel',
                   ),
                 const Spacer(),
                 _MapActionButton(
-                  icon: Icons.gps_fixed_rounded,
-                  tooltip: 'Pusatkan lokasi saya',
-                  onPressed: () => _mapController.move(_driverPoint, 16),
+                  icon: _followGps ? Icons.gps_fixed_rounded : Icons.my_location_rounded,
+                  tooltip: _followGps ? 'Ikuti GPS aktif' : 'Ikuti pergerakan GPS',
+                  onPressed: _centerOnDriver,
                 ),
                 if (!widget.fullscreen) ...[
                   const SizedBox(width: 8),
@@ -1228,10 +1506,15 @@ class _DriverMapPageState extends State<DriverMapPage> {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 92),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
                 child: _MapSheet(
                   job: widget.job,
-                  gpsReady: widget.snapshot != null && !widget.snapshot!.mocked,
+                  gpsReady: hasValidGps,
+                  routeLoading: _routeLoading,
+                  routeError: _routeError,
+                  routeDistanceMeters: _routeDistanceMeters,
+                  routeDurationSeconds: _routeDurationSeconds,
+                  routeReady: _routePoints.length >= 2,
                   onNavigate: widget.job == null
                       ? null
                       : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
@@ -1246,13 +1529,39 @@ class _DriverMapPageState extends State<DriverMapPage> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                child: _FullscreenRouteCard(job: widget.job!),
+                child: _FullscreenRouteCard(
+                  job: widget.job!,
+                  routeDistanceMeters: _routeDistanceMeters,
+                  routeDurationSeconds: _routeDurationSeconds,
+                  routeReady: _routePoints.length >= 2,
+                  onNavigate: () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                ),
               ),
             ),
           ),
       ],
     );
   }
+}
+
+double _formatRouteDistance(double? meters) {
+  if (meters == null) return 0;
+  return meters / 1000;
+}
+
+String _routeDistanceLabel(double? meters) {
+  if (meters == null || !meters.isFinite || meters < 0) return 'Jarak menunggu';
+  if (meters < 1000) return '${meters.round()} m';
+  return '${(meters / 1000).toStringAsFixed(1)} km';
+}
+
+String _routeDurationLabel(double? seconds) {
+  if (seconds == null || !seconds.isFinite || seconds < 0) return 'Waktu menunggu';
+  final minutes = (seconds / 60).round();
+  if (minutes < 60) return '$minutes menit';
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  return remainder == 0 ? '$hours jam' : '$hours jam $remainder mnt';
 }
 
 class _MapActionButton extends StatelessWidget {
@@ -1283,9 +1592,19 @@ class _MapActionButton extends StatelessWidget {
 }
 
 class _FullscreenRouteCard extends StatelessWidget {
-  const _FullscreenRouteCard({required this.job});
+  const _FullscreenRouteCard({
+    required this.job,
+    required this.routeDistanceMeters,
+    required this.routeDurationSeconds,
+    required this.routeReady,
+    required this.onNavigate,
+  });
 
   final DriverJobView job;
+  final double? routeDistanceMeters;
+  final double? routeDurationSeconds;
+  final bool routeReady;
+  final VoidCallback onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -1299,9 +1618,7 @@ class _FullscreenRouteCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0x55D20A2E)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x55000000), blurRadius: 22, offset: Offset(0, 8)),
-        ],
+        boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 22, offset: Offset(0, 8))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1312,38 +1629,46 @@ class _FullscreenRouteCard extends StatelessWidget {
               const Icon(Icons.route_rounded, color: Color(0xFFFF405D)),
               const SizedBox(width: 8),
               const Expanded(
-                child: Text(
-                  'Rute pengantaran',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                ),
+                child: Text('Rute pengantaran',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
               ),
               Text(job.code, style: const TextStyle(color: Colors.white70, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
           Text(job.storeName, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           Text(job.pickupAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Divider(color: Color(0x44FFFFFF), height: 1),
           ),
           Text(job.customerName, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           Text(job.dropoffAddress, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 14),
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.route_outlined, size: 17, color: Color(0xFFFF9CAB)),
+              const SizedBox(width: 7),
+              Expanded(child: Text(
+                routeReady
+                    ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                    : 'Jarak dan waktu tersedia saat rute jalan berhasil dimuat',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
+              )),
+            ],
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => _openRoadNavigation(context, job),
+              onPressed: onNavigate,
               icon: const Icon(Icons.navigation_rounded),
-              label: const Text('Mulai navigasi'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFD20A2E),
-                foregroundColor: Colors.white,
-              ),
+              label: const Text('Buka navigasi turn-by-turn'),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD20A2E)),
             ),
           ),
         ],
@@ -2086,61 +2411,53 @@ Future<void> _openRoadNavigation(
   LocationSnapshot? snapshot,
 }) async {
   final status = job.status.toLowerCase();
-  final isHeadingToCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered', 'completed']
-      .contains(status);
-  final point = isHeadingToCustomer ? job.dropoff : job.pickup;
-  final address = isHeadingToCustomer ? job.dropoffAddress : job.pickupAddress;
+  final goingToCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(status);
+  final point = goingToCustomer ? job.dropoff : job.pickup;
+  final address = goingToCustomer ? job.dropoffAddress : job.pickupAddress;
   final destination = point != null
       ? '${point.latitude},${point.longitude}'
       : (address.trim().isEmpty || address == '-' ? '' : address.trim());
 
   if (destination.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(isHeadingToCustomer
-          ? 'Alamat atau koordinat pelanggan belum tersedia pada order ini.'
-          : 'Alamat atau koordinat merchant belum tersedia pada order ini.')),
+      SnackBar(content: Text(goingToCustomer
+          ? 'Koordinat/alamat pelanggan belum tersedia di order.'
+          : 'Koordinat/alamat merchant belum tersedia di order.')),
     );
     return;
   }
 
-  final googleMapsUri = Uri.https('www.google.com', '/maps/dir/', {
+  final nativeUri = Uri.parse('google.navigation:q=${Uri.encodeComponent(destination)}&mode=d');
+  final directionsUri = Uri.https('www.google.com', '/maps/dir/', {
     if (snapshot != null && !snapshot.mocked)
       'origin': '${snapshot.position.latitude},${snapshot.position.longitude}',
     'destination': destination,
     'travelmode': 'driving',
     'dir_action': 'navigate',
   });
-  final nativeNavigationUri = Uri.parse('google.navigation:q=${Uri.encodeComponent(destination)}&mode=d');
 
   try {
-    final openedNative = await launchUrl(
-      nativeNavigationUri,
-      mode: LaunchMode.externalApplication,
-    );
+    final openedNative = await launchUrl(nativeUri, mode: LaunchMode.externalApplication);
     if (openedNative || !context.mounted) return;
-
-    final openedWeb = await launchUrl(
-      googleMapsUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!openedWeb && context.mounted) {
+    final openedDirections = await launchUrl(directionsUri, mode: LaunchMode.externalApplication);
+    if (!openedDirections && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aplikasi navigasi tidak ditemukan. Instal atau aktifkan aplikasi peta, lalu coba lagi.')),
+        const SnackBar(content: Text('Aplikasi navigasi tidak dapat dibuka. Rute jalan tetap terlihat pada peta aplikasi.')),
       );
     }
   } catch (_) {
     if (!context.mounted) return;
     try {
-      final openedWeb = await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
-      if (!openedWeb && context.mounted) {
+      final opened = await launchUrl(directionsUri, mode: LaunchMode.externalApplication);
+      if (!opened && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Navigasi tidak dapat dibuka. Periksa aplikasi peta atau koneksi perangkat.')),
+          const SnackBar(content: Text('Navigasi eksternal tidak tersedia. Rute jalan di peta aplikasi tetap dapat digunakan.')),
         );
       }
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Navigasi gagal dibuka. Aplikasi BersolekMart tetap aktif.')),
+          const SnackBar(content: Text('Navigasi eksternal gagal dibuka. Aplikasi BersolekMart tetap aktif.')),
         );
       }
     }
@@ -2151,11 +2468,21 @@ class _MapSheet extends StatelessWidget {
   const _MapSheet({
     required this.job,
     required this.gpsReady,
+    required this.routeLoading,
+    required this.routeError,
+    required this.routeDistanceMeters,
+    required this.routeDurationSeconds,
+    required this.routeReady,
     required this.onNavigate,
   });
 
   final DriverJobView? job;
   final bool gpsReady;
+  final bool routeLoading;
+  final String? routeError;
+  final double? routeDistanceMeters;
+  final double? routeDurationSeconds;
+  final bool routeReady;
   final VoidCallback? onNavigate;
 
   @override
@@ -2168,15 +2495,13 @@ class _MapSheet extends StatelessWidget {
           child: Row(
             children: [
               CircleAvatar(
-                backgroundColor: Color(0xFFDDF6E9),
-                child: Icon(Icons.map_outlined, color: Color(0xFF147D58)),
+                backgroundColor: Color(0xFFFFE5E9),
+                child: Icon(Icons.map_outlined, color: Color(0xFFD20A2E)),
               ),
               SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  'Pilih order untuk melihat titik pickup dan tujuan.',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
+                child: Text('Pilih order untuk melihat pickup, tujuan, dan rute jalan.',
+                  style: TextStyle(fontWeight: FontWeight.w700, height: 1.4)),
               ),
             ],
           ),
@@ -2185,30 +2510,34 @@ class _MapSheet extends StatelessWidget {
     }
 
     return Card(
-      elevation: 10,
+      elevation: 12,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    job!.code,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
+                Expanded(child: Text(job!.code,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
                 _StatusChip(status: job!.statusLabel),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              gpsReady ? 'GPS aktif' : 'Menunggu GPS',
-              style: const TextStyle(color: Colors.black54),
+            const SizedBox(height: 5),
+            Row(
+              children: [
+                Icon(
+                  gpsReady ? Icons.gps_fixed_rounded : Icons.gps_off_rounded,
+                  size: 16,
+                  color: gpsReady ? const Color(0xFF147D58) : Colors.black45,
+                ),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Menunggu GPS valid',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                )),
+              ],
             ),
             const SizedBox(height: 12),
             _RouteLine(
@@ -2220,9 +2549,46 @@ class _MapSheet extends StatelessWidget {
             const SizedBox(height: 8),
             _RouteLine(
               icon: Icons.location_on_rounded,
-              color: const Color(0xFFD84040),
+              color: const Color(0xFFD20A2E),
               title: job!.customerName,
               address: job!.dropoffAddress,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F2F3),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  if (routeLoading)
+                    const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)),
+                    )
+                  else
+                    Icon(
+                      routeReady ? Icons.alt_route_rounded : Icons.route_outlined,
+                      color: routeReady ? const Color(0xFF147D58) : const Color(0xFFD20A2E),
+                      size: 18,
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    routeLoading
+                        ? 'Menghitung rute jalan…'
+                        : routeReady
+                            ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                            : (routeError ?? 'Aktifkan GPS untuk menghitung rute jalan.'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.3,
+                      fontWeight: routeReady ? FontWeight.w900 : FontWeight.w600,
+                      color: routeReady ? const Color(0xFF147D58) : const Color(0xFF665C60),
+                    ),
+                  )),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -2230,7 +2596,7 @@ class _MapSheet extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: onNavigate,
                 icon: const Icon(Icons.navigation_rounded),
-                label: const Text('Buka navigasi jalan'),
+                label: const Text('Navigasi turn-by-turn'),
               ),
             ),
           ],
