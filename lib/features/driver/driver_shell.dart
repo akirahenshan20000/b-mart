@@ -413,7 +413,7 @@ class DriverHome extends StatelessWidget {
   Widget build(BuildContext context) {
     final fresh = jobs.where((job) => job.isNew).toList();
     final active = jobs.where((job) => job.isActive).toList();
-    final earnings = jobs.fold<num>(0, (sum, job) => sum + (job.price ?? 0));
+    final completedCount = jobs.where((job) => job.isCompleted).length;
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -465,9 +465,9 @@ class DriverHome extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: _StatCard(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: 'Pendapatan',
-                  value: _rupiah(earnings),
+                  icon: Icons.task_alt_rounded,
+                  label: 'Order selesai',
+                  value: completedCount.toString(),
                 ),
               ),
             ],
