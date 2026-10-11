@@ -301,7 +301,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 }
 
 class ProductImageView extends StatelessWidget {
-  const ProductImageView({required this.path, required this.apiBase});
+  const ProductImageView({super.key, required this.path, required this.apiBase});
   final String path;
   final String apiBase;
 
