@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../account/account_profile_edit_page.dart';
 
 /// Converts API values to readable UI text instead of exposing Map/List dumps.
 String readableApiValue(dynamic value, {String fallback = '-'}) {
@@ -661,8 +662,14 @@ class CustomerProfile extends ConsumerWidget {
           child: Text('Akun Saya', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
         ),
         item(Icons.person_outline_rounded, 'Profil Saya', 'Informasi akun dan kontak',
-          () => _open(context, 'Profil Saya', Icons.person_outline_rounded, user,
-            const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada data akun.')),
+          () async {
+            final saved = await Navigator.of(context).push<bool>(MaterialPageRoute<bool>(
+              builder: (_) => AccountProfileEditPage(title: 'Profil Saya', initialUser: user),
+            ));
+            if (saved == true && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil berhasil diperbarui.')));
+            }
+          }),
         const SizedBox(height: 8),
         item(Icons.location_on_outlined, 'Alamat Pengiriman', 'Lihat alamat yang tersedia pada akun',
           () => _openAddresses(context)),
