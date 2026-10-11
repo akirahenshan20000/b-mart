@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -889,6 +890,10 @@ class DriverProfile extends ConsumerWidget {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverBankAccountsPage()));
   }
 
+  void _openAddressPage(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DriverAddressPage()));
+  }
+
   void _openDetails(BuildContext context, String title, IconData icon, Map<String, dynamic> user, List<String> keys, String emptyText) {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => _DriverAccountDetailPage(title: title, icon: icon, user: user, keys: keys, emptyText: emptyText),
@@ -962,8 +967,11 @@ class DriverProfile extends ConsumerWidget {
           tile(Icons.two_wheeler_rounded, 'Kendaraan', 'Informasi kendaraan yang terdaftar',
             () => _openVehiclePage(context)),
           const SizedBox(height: 8),
-          tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Informasi rekening driver',
+          tile(Icons.account_balance_outlined, 'Rekening Pencairan', 'Kelola rekening untuk pencairan driver',
             () => _openBanksPage(context)),
+          const SizedBox(height: 8),
+          tile(Icons.location_on_outlined, 'Alamat & Lokasi Pangkal', 'Lihat alamat acuan dan atur lokasi GPS driver',
+            () => _openAddressPage(context)),
           const SizedBox(height: 8),
           tile(Icons.shield_outlined, 'Keamanan Lokasi',
             snapshot?.mocked == true ? 'Lokasi mencurigakan terdeteksi' : 'Status pemantauan lokasi perangkat',
@@ -1123,6 +1131,153 @@ class _DriverVehiclePageState extends ConsumerState<DriverVehiclePage> {
   );
 }
 
+
+class DriverAddressPage extends ConsumerStatefulWidget {
+  const DriverAddressPage({super.key});
+
+  @override
+  ConsumerState<DriverAddressPage> createState() => _DriverAddressPageState();
+}
+
+class _DriverAddressPageState extends ConsumerState<DriverAddressPage> {
+  late Future<Map<String, dynamic>> _future;
+  bool _saving = false;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>> _load() async {
+    final response = await ref.read(apiClientProvider).get('/driver/profile');
+    return Map<String, dynamic>.from(response is Map && response['data'] is Map ? response['data'] as Map : const {});
+  }
+
+  Future<Position> _getPosition() async {
+    if (!await Geolocator.isLocationServiceEnabled()) throw Exception('Aktifkan layanan lokasi perangkat.');
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      throw Exception('Izin lokasi ditolak. Izinkan akses lokasi presisi untuk menyimpan lokasi pangkal.');
+    }
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 18)),
+    );
+  }
+
+  Future<void> _saveGps() async {
+    setState(() { _saving = true; _message = null; });
+    try {
+      final position = await _getPosition();
+      await ref.read(apiClientProvider).post('/driver/base-location', {
+        'source': 'driver_gps',
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'accuracy': position.accuracy,
+      });
+      if (mounted) {
+        setState(() {
+          _future = _load();
+          _message = 'Lokasi pangkal tersimpan dari GPS perangkat. Akurasi ${position.accuracy.toStringAsFixed(0)} m.';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _message = 'Lokasi belum tersimpan: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _useSavedAddress() async {
+    setState(() { _saving = true; _message = null; });
+    try {
+      await ref.read(apiClientProvider).post('/driver/base-location', {'source': 'address'});
+      if (mounted) setState(() {
+        _future = _load();
+        _message = 'Lokasi pangkal diperbarui menggunakan alamat utama yang sudah tersimpan.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _message = 'Alamat utama belum dapat digunakan: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Alamat & Lokasi Pangkal')),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) {
+          return _ErrorCard(
+            message: 'Alamat pangkal driver belum dapat dimuat. Pastikan endpoint /driver/profile tersedia di server.',
+            onRetry: () async => setState(() => _future = _load()),
+          );
+        }
+        final data = snapshot.data ?? const <String, dynamic>{};
+        final lat = data['base_lat'] ?? data['lat'];
+        final lng = data['base_lng'] ?? data['lng'];
+        final fields = <String, String>{
+          'Alamat acuan tersimpan': readableDriverValue(data['base_address_snapshot'], fallback: 'Belum ada alamat acuan tersimpan'),
+          'Latitude': readableDriverValue(lat),
+          'Longitude': readableDriverValue(lng),
+          'Sumber lokasi': readableDriverValue(data['base_source'], fallback: 'Belum diatur'),
+          'Akurasi GPS': data['base_accuracy_m'] == null ? '-' : '${readableDriverValue(data['base_accuracy_m'])} m',
+          'Radius layanan': data['service_radius_km'] == null ? '-' : '${readableDriverValue(data['service_radius_km'])} km',
+          'Terakhir diperbarui': readableDriverValue(data['base_updated_at'], fallback: '-'),
+        };
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5F7ED),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.location_on_rounded, color: Color(0xFF147D58), size: 30),
+                SizedBox(width: 12),
+                Expanded(child: Text('Lokasi pangkal digunakan sebagai referensi kerja driver. Perubahan hanya dikirim ke backend; aplikasi tidak mengarang alamat dari koordinat.',
+                  style: TextStyle(height: 1.4))),
+              ]),
+            ),
+            const SizedBox(height: 14),
+            for (final field in fields.entries)
+              Card(child: ListTile(
+                title: Text(field.key, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: SelectableText(field.value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              )),
+            if (_message != null) ...[
+              const SizedBox(height: 8),
+              Text(_message!, style: TextStyle(color: _message!.startsWith('Lokasi belum') || _message!.startsWith('Alamat utama belum') ? const Color(0xFFD20A2E) : const Color(0xFF147D58), fontWeight: FontWeight.w700)),
+            ],
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _saving ? null : _saveGps,
+              icon: _saving ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2,color: Colors.white)) : const Icon(Icons.my_location_rounded),
+              label: const Text('Simpan lokasi pangkal dari GPS'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _useSavedAddress,
+              icon: const Icon(Icons.home_work_outlined),
+              label: const Text('Gunakan alamat utama tersimpan'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
 class DriverBankAccountsPage extends ConsumerStatefulWidget {
   const DriverBankAccountsPage({super.key});
 
@@ -1144,32 +1299,78 @@ class _DriverBankAccountsPageState extends ConsumerState<DriverBankAccountsPage>
     return List<dynamic>.from(payload is Map ? payload['data'] as List? ?? const [] : const []);
   }
 
+  Future<void> _editBank([Map<String, dynamic>? initial]) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _DriverBankEditorDialog(initialAccount: initial),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/banks/save', result);
+      if (mounted) {
+        setState(() => _future = _load());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rekening pencairan berhasil disimpan.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rekening gagal disimpan: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
+  Future<void> _deleteBank(Map<String, dynamic> account) async {
+    final id = int.tryParse(account['id']?.toString() ?? '');
+    if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus rekening?'),
+        content: Text('Rekening ${account['bank_name'] ?? ''} akan dihapus dari akun driver.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Hapus')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/banks/delete/$id', const <String, dynamic>{});
+      if (mounted) setState(() => _future = _load());
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rekening gagal dihapus: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Rekening Pencairan')),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: () => _editBank(),
+      backgroundColor: const Color(0xFF147D58),
+      foregroundColor: Colors.white,
+      icon: const Icon(Icons.add_card_rounded),
+      label: const Text('Tambah rekening'),
+    ),
     body: FutureBuilder<List<dynamic>>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
         if (snapshot.hasError) {
           return _ErrorCard(
-            message: 'Rekening belum dapat dimuat. Pastikan endpoint /banks sudah tersedia.',
+            message: 'Rekening belum dapat dimuat. Pastikan endpoint /banks tersedia di backend.',
             onRetry: () async { setState(() => _future = _load()); },
           );
         }
         final items = snapshot.data ?? const [];
         if (items.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFF147D58)),
-                SizedBox(height: 12),
-                Text('Belum ada rekening pencairan.', style: TextStyle(fontWeight: FontWeight.w800)),
-                SizedBox(height: 6),
-                Text('Pengelolaan rekening tetap mengikuti proses PWA sampai endpoint simpan mobile digunakan.', textAlign: TextAlign.center),
-              ]),
-            ),
+          return ListView(
+            padding: const EdgeInsets.all(24),
+            children: const [
+              SizedBox(height: 80),
+              Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFF147D58)),
+              SizedBox(height: 12),
+              Center(child: Text('Belum ada rekening pencairan.', style: TextStyle(fontWeight: FontWeight.w800))),
+              SizedBox(height: 6),
+              Center(child: Text('Gunakan tombol Tambah rekening untuk menyimpan rekening driver.', textAlign: TextAlign.center)),
+            ],
           );
         }
         return ListView.separated(
@@ -1185,14 +1386,98 @@ class _DriverBankAccountsPageState extends ConsumerState<DriverBankAccountsPage>
             return Card(child: ListTile(
               leading: const CircleAvatar(backgroundColor: Color(0xFFE0F5EA), child: Icon(Icons.account_balance_outlined, color: Color(0xFF147D58))),
               title: Text(readableDriverValue(item['bank_name'], fallback: 'Bank'), style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text('${readableDriverValue(item['account_name'], fallback: 'Pemilik rekening')}\n$masked'),
-              trailing: isDefault ? const Chip(label: Text('Utama')) : null,
+              subtitle: Text('${readableDriverValue(item['account_name'], fallback: 'Pemilik rekening')}\n$masked${isDefault ? '\\nRekening utama' : ''}'),
+              isThreeLine: true,
+              trailing: PopupMenuButton<String>(
+                onSelected: (choice) {
+                  if (choice == 'edit') _editBank(item);
+                  if (choice == 'delete') _deleteBank(item);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit rekening')),
+                  PopupMenuItem(value: 'delete', child: Text('Hapus rekening')),
+                ],
+              ),
             ));
           },
         );
       },
     ),
   );
+}
+
+class _DriverBankEditorDialog extends StatefulWidget {
+  const _DriverBankEditorDialog({this.initialAccount});
+  final Map<String, dynamic>? initialAccount;
+
+  @override
+  State<_DriverBankEditorDialog> createState() => _DriverBankEditorDialogState();
+}
+
+class _DriverBankEditorDialogState extends State<_DriverBankEditorDialog> {
+  late final TextEditingController _bank;
+  late final TextEditingController _name;
+  late final TextEditingController _number;
+  bool _default = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialAccount ?? const <String, dynamic>{};
+    _bank = TextEditingController(text: initial['bank_name']?.toString() ?? '');
+    _name = TextEditingController(text: initial['account_name']?.toString() ?? '');
+    _number = TextEditingController(text: initial['account_number']?.toString() ?? '');
+    _default = initial['is_default'] == true || initial['is_default']?.toString() == '1';
+  }
+
+  void _save() {
+    final digits = _number.text.replaceAll(RegExp(r'\D'), '');
+    if (_bank.text.trim().length < 2 || _name.text.trim().length < 2 || digits.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Isi nama bank, pemilik rekening, dan nomor rekening yang valid.')));
+      return;
+    }
+    Navigator.of(context).pop(<String, dynamic>{
+      'id': widget.initialAccount?['id'] ?? 0,
+      'bank_name': _bank.text.trim(),
+      'account_name': _name.text.trim(),
+      'account_number': digits,
+      'is_default': _default ? 1 : 0,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.initialAccount == null ? 'Tambah rekening' : 'Edit rekening'),
+    content: SizedBox(
+      width: 420,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: _bank, decoration: const InputDecoration(labelText: 'Nama bank')),
+        const SizedBox(height: 10),
+        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nama pemilik rekening')),
+        const SizedBox(height: 10),
+        TextField(controller: _number, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Nomor rekening')),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _default,
+          onChanged: (value) => setState(() => _default = value ?? false),
+          title: const Text('Jadikan rekening utama'),
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ]),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Batal')),
+      FilledButton(onPressed: _save, child: const Text('Simpan rekening')),
+    ],
+  );
+
+  @override
+  void dispose() {
+    _bank.dispose();
+    _name.dispose();
+    _number.dispose();
+    super.dispose();
+  }
 }
 
 class _OnlinePill extends StatelessWidget {
@@ -1581,7 +1866,7 @@ Future<void> _openRoadNavigation(BuildContext context, DriverJobView job) async 
     'travelmode': 'driving',
   });
   try {
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final launched = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
     if (!launched && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Navigasi tidak dapat dibuka. Periksa aplikasi peta atau browser.')),
