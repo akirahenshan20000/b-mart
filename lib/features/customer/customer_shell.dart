@@ -1416,6 +1416,25 @@ class CustomerOrders extends ConsumerStatefulWidget {
 
 class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
   late Future<List<dynamic>> _future;
+
+  Future<void> _openOrder(Map<String, dynamic> order) async {
+    final id = int.tryParse(order['id']?.toString() ?? '');
+    if (id == null) return;
+    try {
+      final response = await ref.read(apiClientProvider).get('/orders/$id');
+      final data = response is Map && response['data'] is Map
+          ? Map<String, dynamic>.from(response['data'] as Map)
+          : order;
+      final payment = data['payment'] is Map ? Map<String, dynamic>.from(data['payment'] as Map) : <String, dynamic>{};
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+        builder: (_) => CustomerPaymentPage(order: data, payment: payment),
+      ));
+      if (mounted) setState(() => _future = _load());
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Detail pesanan gagal dimuat: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
   @override
   void initState() { super.initState(); _future = _load(); }
   Future<List<dynamic>> _load() async {
@@ -1443,6 +1462,7 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
         itemBuilder: (context, index) {
           final order = Map<String, dynamic>.from(items[index] as Map);
           return Card(child: ListTile(
+            onTap: () => _openOrder(order),
             leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E8), child: Icon(Icons.receipt_long, color: Color(0xFFD20A2E))),
             title: Text('${order['code'] ?? order['order_code'] ?? 'Pesanan'}', style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text(readableApiValue(order['flow_state'] ?? order['status'])),
