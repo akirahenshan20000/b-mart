@@ -359,17 +359,21 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   Future<void> _setOfflineForMock() async {
     await _guard.stop();
+    var serverConfirmed = false;
     try {
       await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+      serverConfirmed = true;
     } catch (_) {
       if (kDebugMode) debugPrint('[BersolekMart Driver] server offline status could not be confirmed after mock GPS.');
     }
     if (!mounted) return;
     setState(() => _online = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: Color(0xFFD32F2F),
-        content: Text('Mock location terdeteksi. GPS dihentikan dan driver dibuat offline.'),
+      SnackBar(
+        backgroundColor: const Color(0xFFD32F2F),
+        content: Text(serverConfirmed
+            ? 'Mock location terdeteksi. GPS dihentikan dan status server menjadi offline.'
+            : 'Mock location terdeteksi. GPS dihentikan; status server belum dapat dikonfirmasi.'),
       ),
     );
   }
@@ -483,7 +487,7 @@ class DriverHome extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 52, 16, 110),
+        padding: const EdgeInsets.fromLTRB(14, 18, 14, 20),
         children: [
           Row(
             children: [
@@ -515,7 +519,7 @@ class DriverHome extends StatelessWidget {
               _OnlinePill(value: online, onChanged: onOnlineChanged),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _HeroCard(online: online, snapshot: snapshot),
           const SizedBox(height: 12),
           Row(
@@ -537,7 +541,7 @@ class DriverHome extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 17),
           Row(
             children: [
               const Expanded(
@@ -932,48 +936,49 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
                   _DriverDetailSection(
                     title: 'Proses pengantaran',
                     icon: Icons.route_outlined,
+                    child: _DriverProgressBar(
+                      current: _stage,
+                      status: _job.statusLabel,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _DriverDetailSection(
+                    title: 'Rute order',
+                    icon: Icons.location_on_outlined,
                     child: Column(
                       children: [
-                        _DriverProgressStep(label: 'Order tersedia', subtitle: 'Menunggu penugasan atau klaim driver', index: 0, current: _stage),
-                        _DriverProgressStep(label: 'Diterima driver', subtitle: 'Driver mengonfirmasi penerimaan order', index: 1, current: _stage),
-                        _DriverProgressStep(label: 'Pickup merchant', subtitle: 'Menuju merchant dan mengambil pesanan', index: 2, current: _stage),
-                        _DriverProgressStep(label: 'Pengantaran', subtitle: 'Menuju alamat pelanggan', index: 3, current: _stage),
-                        _DriverProgressStep(label: 'Bukti pengantaran', subtitle: 'Serah-terima dicatat oleh backend', index: 4, current: _stage),
-                        _DriverProgressStep(label: 'Selesai', subtitle: 'Transaksi pengantaran selesai di server', index: 5, current: _stage, last: true),
+                        _DriverAddressRow(
+                          title: _job.storeName,
+                          address: _job.pickupAddress,
+                          icon: Icons.storefront_rounded,
+                          tint: const Color(0xFF147D58),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(20, 9, 0, 9),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Icon(Icons.more_vert_rounded, color: Color(0xFFB5A8AC), size: 20),
+                          ),
+                        ),
+                        _DriverAddressRow(
+                          title: _job.customerName,
+                          address: _job.dropoffAddress,
+                          icon: Icons.location_on_rounded,
+                          tint: const Color(0xFFD20A2E),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.navigation_outlined, color: Color(0xFFD20A2E), size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(
+                              'Tujuan berikutnya: $destinationLabel',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                            )),
+                            TextButton(onPressed: widget.onOpenMap, child: const Text('Lihat peta')),
+                          ],
+                        ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Titik pickup',
-                    icon: Icons.storefront_outlined,
-                    child: _DriverAddressRow(
-                      title: _job.storeName,
-                      address: _job.pickupAddress,
-                      icon: Icons.storefront_rounded,
-                      tint: const Color(0xFF147D58),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Alamat pelanggan',
-                    icon: Icons.location_on_outlined,
-                    child: _DriverAddressRow(
-                      title: _job.customerName,
-                      address: _job.dropoffAddress,
-                      icon: Icons.location_on_rounded,
-                      tint: const Color(0xFFD20A2E),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _DriverDetailSection(
-                    title: 'Tujuan navigasi berikutnya',
-                    icon: Icons.navigation_outlined,
-                    child: _DriverAddressRow(
-                      title: destinationLabel,
-                      address: destinationAddress,
-                      icon: Icons.near_me_rounded,
-                      tint: const Color(0xFFD20A2E),
                     ),
                   ),
                   if (_error != null) ...[
@@ -1092,55 +1097,82 @@ class _DriverAddressRow extends StatelessWidget {
   );
 }
 
-class _DriverProgressStep extends StatelessWidget {
-  const _DriverProgressStep({
-    required this.label,
-    required this.subtitle,
-    required this.index,
-    required this.current,
-    this.last = false,
-  });
-  final String label;
-  final String subtitle;
-  final int index;
+class _DriverProgressBar extends StatelessWidget {
+  const _DriverProgressBar({required this.current, required this.status});
   final int current;
-  final bool last;
+  final String status;
+
+  static const _labels = [
+    'Order',
+    'Terima',
+    'Pickup',
+    'Antar',
+    'Bukti',
+    'Selesai',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final done = index < current;
-    final active = index == current;
-    final color = done || active ? const Color(0xFF147D58) : const Color(0xFFD4CDCF);
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 15),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 26,
-            child: Column(children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(color: done ? color : Colors.white, shape: BoxShape.circle, border: Border.all(color: color, width: 1.5)),
-                child: Icon(done ? Icons.check_rounded : active ? Icons.radio_button_checked_rounded : Icons.circle_outlined,
-                  color: done ? Colors.white : color, size: 15),
+    final safeCurrent = current.clamp(0, _labels.length - 1);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List<Widget>.generate(_labels.length, (index) {
+            final complete = index < safeCurrent;
+            final active = index == safeCurrent;
+            final fill = complete || active
+                ? const Color(0xFFD20A2E)
+                : const Color(0xFFE8DFE1);
+            return Expanded(
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: complete ? const Color(0xFFD20A2E) : Colors.white,
+                      border: Border.all(color: fill, width: 1.5),
+                    ),
+                    child: Icon(
+                      complete ? Icons.check_rounded : active ? Icons.circle_rounded : Icons.circle_outlined,
+                      size: complete ? 14 : 10,
+                      color: complete ? Colors.white : fill,
+                    ),
+                  ),
+                  if (index < _labels.length - 1)
+                    Expanded(
+                      child: Container(
+                        height: 2,
+                        color: index < safeCurrent ? const Color(0xFFD20A2E) : const Color(0xFFE8DFE1),
+                      ),
+                    ),
+                ],
               ),
-              if (!last)
-                Container(width: 2, height: 26, color: index < current ? const Color(0xFF147D58) : const Color(0xFFE3DDDF)),
-            ]),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: TextStyle(fontWeight: FontWeight.w900, color: active ? const Color(0xFF147D58) : const Color(0xFF282124))),
-              const SizedBox(height: 3),
-              Text(subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12, height: 1.35)),
-            ]),
-          )),
-        ],
-      ),
+            );
+          }),
+        ),
+        const SizedBox(height: 12),
+        Text(status, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+        const SizedBox(height: 4),
+        Text(
+          'Tahap ${safeCurrent + 1} dari ${_labels.length} · Status terakhir dikonfirmasi backend.',
+          style: const TextStyle(color: Colors.black54, fontSize: 12, height: 1.35),
+        ),
+        const SizedBox(height: 7),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: _labels.map((label) => Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: label == _labels[safeCurrent] ? FontWeight.w900 : FontWeight.w500,
+              color: label == _labels[safeCurrent] ? const Color(0xFFD20A2E) : const Color(0xFF8A7D82),
+            ),
+          )).toList(),
+        ),
+      ],
     );
   }
 }
@@ -2157,8 +2189,12 @@ class _HeroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0E6D50), Color(0xFF1BB27A)],
+        gradient: LinearGradient(
+          colors: mocked
+              ? const [Color(0xFF3B1C22), Color(0xFF84212F)]
+              : online
+                  ? const [Color(0xFF24191C), Color(0xFF8B001F)]
+                  : const [Color(0xFF21191B), Color(0xFF433338)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
