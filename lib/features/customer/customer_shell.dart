@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../account/account_profile_edit_page.dart';
@@ -85,17 +88,18 @@ class CustomerShell extends ConsumerStatefulWidget {
 
 class _CustomerShellState extends ConsumerState<CustomerShell> {
   int _index = 0;
+  int _cartRevision = 0;
   String? _selectedCategory;
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() => _index = 2)),
+      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() { _cartRevision++; _index = 2; })),
       CustomerCategories(onSelect: (category) => setState(() {
         _selectedCategory = category;
         _index = 0;
       })),
-      const CustomerCart(),
+      CustomerCart(key: ValueKey('cart-$_cartRevision')),
       const CustomerOrders(),
       const CustomerProfile(),
     ];
@@ -107,17 +111,8 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(28),
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 10),
+            Image.asset('assets/branding/bersolek-mart-adaptive-foreground.png', width: 38, height: 38, fit: BoxFit.contain),
+            const SizedBox(width: 8),
             const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
           ],
         ),
@@ -125,7 +120,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) => setState(() { if (value == 2) _cartRevision++; _index = value; }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Belanja'),
           NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Kategori'),
@@ -197,12 +192,24 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
       api.get('/catalog/products', query: query),
       api.get('/catalog/categories'),
       api.baseUrl(),
+      api.get('/cms/home').catchError((_) => <String, dynamic>{}),
     ]);
     final productPayload = results[0] as Map;
     final categoryPayload = results[1] as Map;
+    final cmsPayload = results[3] is Map ? results[3] as Map : const <String, dynamic>{};
+    final cmsData = cmsPayload['data'] is Map ? cmsPayload['data'] as Map : cmsPayload;
+    final slidesRaw = cmsData['hero_slides'] is List
+        ? cmsData['hero_slides'] as List
+        : cmsData['hero'] is Map
+            ? [cmsData['hero']]
+            : const <dynamic>[];
     return {
       'products': catalogProductsFromPayload(productPayload),
       'categories': List<dynamic>.from(categoryPayload['data'] as List? ?? const []),
+      'heroSlides': slidesRaw.whereType<Map>().map((slide) => Map<String, dynamic>.from(slide)).where((slide) {
+        final path = (slide['image_path'] ?? slide['image'] ?? '').toString().trim();
+        return path.isNotEmpty;
+      }).toList(),
       'apiBase': results[2] as String,
     };
   }
@@ -227,32 +234,24 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
           final items = List<dynamic>.from(data['products'] as List? ?? const []);
           final categories = List<dynamic>.from(data['categories'] as List? ?? const []);
           final apiBase = data['apiBase']?.toString() ?? '';
+          final heroSlides = List<dynamic>.from(data['heroSlides'] as List? ?? const []);
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFD20A2E), Color(0xFFEF5368)]),
-                  borderRadius: BorderRadius.circular(22),
+              if (heroSlides.isNotEmpty)
+                CustomerHeroSlider(slides: heroSlides, apiBase: apiBase)
+              else
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFECE1E3))),
+                  child: const Row(children: [
+                    Icon(Icons.campaign_outlined, color: Color(0xFFD20A2E), size: 30),
+                    SizedBox(width: 12),
+                    Expanded(child: Text('Banner promosi belum tersedia. Produk UMKM tetap dapat dijelajahi di bawah ini.', style: TextStyle(fontWeight: FontWeight.w600, height: 1.35))),
+                  ]),
                 ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Icon(Icons.location_on_rounded, color: Colors.white, size: 17),
-                      SizedBox(width: 5),
-                      Text('Kota Probolinggo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                    ]),
-                    SizedBox(height: 12),
-                    Text('UMKM Lokal, Pilihan Terbaik', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
-                    SizedBox(height: 5),
-                    Text('Belanja produk lokal dan dukung usaha di sekitar kita.', style: TextStyle(color: Colors.white, height: 1.35)),
-                  ],
-                ),
-              ),
               const SizedBox(height: 16),
               TextField(
                 controller: _search,
@@ -409,6 +408,129 @@ class _ImageFallback extends StatelessWidget {
     child: Icon(loading ? Icons.hourglass_top_rounded : Icons.image_not_supported_outlined,
       size: 42, color: const Color(0xFFB7AEB0)),
   );
+}
+
+
+class CustomerHeroSlider extends StatefulWidget {
+  const CustomerHeroSlider({super.key, required this.slides, required this.apiBase});
+  final List<dynamic> slides;
+  final String apiBase;
+
+  @override
+  State<CustomerHeroSlider> createState() => _CustomerHeroSliderState();
+}
+
+class _CustomerHeroSliderState extends State<CustomerHeroSlider> {
+  late final PageController _controller;
+  Timer? _timer;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController();
+    if (widget.slides.length > 1) {
+      _timer = Timer.periodic(const Duration(milliseconds: 6500), (_) {
+        if (!mounted || !_controller.hasClients) return;
+        final next = (_page + 1) % widget.slides.length;
+        _controller.animateToPage(next, duration: const Duration(milliseconds: 420), curve: Curves.easeInOut);
+      });
+    }
+  }
+
+  Future<void> _openTarget(String raw) async {
+    final value = raw.trim();
+    if (value.isEmpty) return;
+    Uri? uri = Uri.tryParse(value);
+    if (uri == null) return;
+    if (!uri.hasScheme) {
+      final base = Uri.tryParse(widget.apiBase);
+      if (base == null) return;
+      final origin = Uri(scheme: base.scheme, host: base.host, port: base.hasPort ? base.port : null);
+      uri = origin.resolve(value);
+    }
+    if (uri.scheme != 'https' && uri.scheme != 'http') return;
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tautan banner tidak dapat dibuka.')));
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tautan banner gagal dibuka.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final first = Map<String, dynamic>.from(widget.slides.first as Map);
+    final ratioValue = double.tryParse((first['media_ratio'] ?? '').toString());
+    final ratio = (ratioValue ?? 1.75).clamp(1.15, 2.2).toDouble();
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: AspectRatio(
+            aspectRatio: ratio,
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: widget.slides.length,
+              onPageChanged: (value) => setState(() => _page = value),
+              itemBuilder: (context, index) {
+                final slide = Map<String, dynamic>.from(widget.slides[index] as Map);
+                final path = (slide['image_path'] ?? slide['image'] ?? '').toString();
+                final target = (slide['target_url'] ?? slide['url'] ?? '').toString();
+                return Material(
+                  color: const Color(0xFFF6F3F3),
+                  child: InkWell(
+                    onTap: target.trim().isEmpty ? null : () => _openTarget(target),
+                    child: Image.network(
+                      resolveMediaUrl(path, widget.apiBase),
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const Center(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.broken_image_outlined, color: Color(0xFFB7AEB0), size: 32),
+                          SizedBox(height: 6),
+                          Text('Banner tidak dapat dimuat', style: TextStyle(color: Colors.black54)),
+                        ]),
+                      ),
+                      loadingBuilder: (context, child, progress) => progress == null
+                          ? child
+                          : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        if (widget.slides.length > 1) ...[
+          const SizedBox(height: 9),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List<Widget>.generate(widget.slides.length, (index) => AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: _page == index ? 19 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _page == index ? const Color(0xFFD20A2E) : const Color(0xFFDCCFD1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+            )),
+          ),
+        ],
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
 }
 
 class _CategoryTile extends StatelessWidget {
@@ -659,9 +781,12 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
                 ])),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Checkout tetap mengikuti validasi alamat dan lokasi yang berlaku pada PWA. Fitur checkout mobile belum diaktifkan.')),
-                  ),
+                  onPressed: () async {
+                    final completed = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute<bool>(builder: (_) => const CustomerCheckoutPage()),
+                    );
+                    if (completed == true && mounted) await _refresh();
+                  },
                   child: const Text('Lanjut Checkout'),
                 ),
               ]),
