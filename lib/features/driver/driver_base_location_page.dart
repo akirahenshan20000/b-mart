@@ -61,10 +61,12 @@ class _DriverBaseLocationPageState extends ConsumerState<DriverBaseLocationPage>
         _success = true;
       });
     } catch (error) {
-      if (mounted) setState(() {
-        _message = error is StateError ? error.message : 'Lokasi gagal didapat. Periksa izin perangkat dan coba lagi.';
-        _success = false;
-      });
+      if (mounted) {
+        setState(() {
+          _message = error is StateError ? error.message : 'Lokasi gagal didapat. Periksa izin perangkat dan coba lagi.';
+          _success = false;
+        });
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
@@ -99,10 +101,12 @@ class _DriverBaseLocationPageState extends ConsumerState<DriverBaseLocationPage>
         _success = true;
       });
     } catch (_) {
-      if (mounted) setState(() {
-        _message = 'Titik pangkal gagal disimpan. Pastikan API driver/base-location sudah terpasang dan alamat utama memiliki koordinat jika menggunakan alamat.';
-        _success = false;
-      });
+      if (mounted) {
+        setState(() {
+          _message = 'Titik pangkal gagal disimpan. Pastikan API driver/base-location sudah terpasang dan alamat utama memiliki koordinat jika menggunakan alamat.';
+          _success = false;
+        });
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
