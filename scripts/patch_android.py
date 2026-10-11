@@ -21,15 +21,14 @@ missing = [
     if f'android:name="{permission}"' not in text
 ]
 if missing:
-    # Permissions must be sibling elements of <application>, not inserted
-    # into the opening <manifest> tag where they would corrupt its XML attributes.
-    marker = re.search(r'<application\\b', text)
+    # Permissions must be siblings of <application>, inside <manifest>.
+    marker = re.search(r'<application\b', text)
     if marker is None:
         raise SystemExit('AndroidManifest.xml has no <application> element.')
-    text = text[:marker.start()] + '\\n'.join(missing) + '\\n    ' + text[marker.start():]
+    text = text[:marker.start()] + '\n'.join(missing) + '\n    ' + text[marker.start():]
 
 if 'android:usesCleartextTraffic=' not in text:
-    text = re.sub(r'<application\\b', '<application android:usesCleartextTraffic="true"', text, count=1)
+    text = re.sub(r'<application\b', '<application android:usesCleartextTraffic="true"', text, count=1)
 
 manifest.write_text(text, encoding='utf-8')
 print(f'Patched {manifest}')
