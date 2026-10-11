@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../account/member_data_pages.dart';
 
 Map<String, dynamic> _baseData(dynamic payload) =>
     payload is Map && payload['data'] is Map
@@ -38,6 +39,15 @@ class _DriverBaseLocationPageState extends ConsumerState<DriverBaseLocationPage>
     final radius = double.tryParse(result['service_radius_km']?.toString() ?? '');
     if (mounted && radius != null && radius >= 1 && radius <= 30) _radius = radius;
     return result;
+  }
+
+  Future<void> _manageAddresses() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const MemberAddressBookPage(title: 'Alamat Driver'),
+      ),
+    );
+    if (mounted) setState(() => _future = _load());
   }
 
   Future<void> _captureGps() async {
@@ -156,6 +166,12 @@ class _DriverBaseLocationPageState extends ConsumerState<DriverBaseLocationPage>
                   ),
                 ]),
               ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _manageAddresses,
+              icon: const Icon(Icons.home_work_outlined),
+              label: const Text('Kelola alamat driver'),
             ),
             const SizedBox(height: 16),
             const Text('Radius layanan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
