@@ -29,7 +29,14 @@ if missing:
         raise SystemExit('AndroidManifest.xml has no <application> element.')
     text = text[:marker.start()] + '\n'.join(missing) + '\n    ' + text[marker.start():]
 
-if 'android:usesCleartextTraffic=' not in text:
+if 'android:usesCleartextTraffic=' in text:
+    text = re.sub(
+        r'android:usesCleartextTraffic="[^"]*"',
+        'android:usesCleartextTraffic="false"',
+        text,
+        count=1,
+    )
+else:
     text = re.sub(r'<application\b', '<application android:usesCleartextTraffic="false"', text, count=1)
 
 manifest.write_text(text, encoding='utf-8')
