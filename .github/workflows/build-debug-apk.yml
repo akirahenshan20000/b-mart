@@ -13,6 +13,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Prepare canonical BersolekMart branding
+        run: |
+          python -m pip install --quiet Pillow
+          python scripts/prepare_branding.py
+
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
