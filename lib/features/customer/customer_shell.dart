@@ -790,7 +790,7 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
                 color: const Color(0xFFF6EDEF), borderRadius: BorderRadius.circular(18), clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: target.trim().isEmpty ? null : () => _openTarget(target),
-                  child: AspectRatio(aspectRatio: ratio.clamp(1.45, 2.7), child: _bannerImage(image, fit: BoxFit.contain, height: height)),
+                  child: AspectRatio(aspectRatio: ratio.clamp(1.45, 2.7).toDouble(), child: _bannerImage(image, fit: BoxFit.contain, height: height)),
                 ),
               );
             }
