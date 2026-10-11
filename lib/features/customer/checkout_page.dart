@@ -4,7 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
-import 'member_data_pages.dart';
+import '../account/member_data_pages.dart';
 
 Map<String, dynamic> _checkoutMap(dynamic payload) =>
     payload is Map && payload['data'] is Map
