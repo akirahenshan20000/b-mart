@@ -55,7 +55,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Image.asset('assets/branding/bersolek-mart-icon-512.png', width: 34, height: 34),
+                          Image.asset('assets/branding/bersolek-mart-adaptive-foreground.png', width: 42, height: 42, fit: BoxFit.contain),
                           const SizedBox(width: 10),
                           const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
                         ],
