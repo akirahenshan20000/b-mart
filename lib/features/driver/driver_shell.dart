@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/location/location_guard.dart';
+import '../account/account_profile_edit_page.dart';
 
 /// Converts structured API fields to human-readable text for driver screens.
 String readableDriverValue(dynamic value, {String fallback = '-'}) {
@@ -949,8 +950,14 @@ class DriverProfile extends ConsumerWidget {
           const Text('Akun dan Pengaturan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 8),
           tile(Icons.person_outline_rounded, 'Profil Saya', 'Informasi akun dan kontak',
-            () => _openDetails(context, 'Profil Saya', Icons.person_outline_rounded, user,
-              const ['full_name', 'name', 'email', 'phone', 'nik'], 'Informasi profil belum tersedia pada respons akun.')),
+            () async {
+              final saved = await Navigator.of(context).push<bool>(MaterialPageRoute<bool>(
+                builder: (_) => AccountProfileEditPage(title: 'Profil Driver', initialUser: user),
+              ));
+              if (saved == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil berhasil diperbarui.')));
+              }
+            }),
           const SizedBox(height: 8),
           tile(Icons.two_wheeler_rounded, 'Kendaraan', 'Informasi kendaraan yang terdaftar',
             _openVehiclePage(context)),
