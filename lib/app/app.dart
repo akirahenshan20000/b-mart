@@ -30,6 +30,7 @@ class BersolekMartApp extends ConsumerWidget {
           surface: Colors.white,
         ),
         scaffoldBackgroundColor: const Color(0xFFF7F4F4),
+        dividerColor: const Color(0xFFECE1E3),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           backgroundColor: Color(0xFF171113),
@@ -47,10 +48,25 @@ class BersolekMartApp extends ConsumerWidget {
           iconTheme: WidgetStateProperty.resolveWith((states) =>
             IconThemeData(color: states.contains(WidgetState.selected) ? Colors.white : Colors.white70)),
         ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFD20A2E),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(48, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            minimumSize: const Size(48, 48),
+          ),
+        ),
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           filled: true,
-          fillColor: const Color(0xFFFFF8F8),
+          fillColor: Colors.white,
         ),
         cardTheme: CardThemeData(
           margin: EdgeInsets.zero,
