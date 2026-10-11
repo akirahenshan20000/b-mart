@@ -16,6 +16,11 @@ List<dynamic> _checkoutList(dynamic payload) =>
         ? List<dynamic>.from(payload['data'] as List)
         : <dynamic>[];
 
+num _checkoutNumber(dynamic raw) {
+  if (raw is num) return raw;
+  return num.tryParse(raw?.toString() ?? '') ?? 0;
+}
+
 String _checkoutRupiah(dynamic raw) {
   final value = raw is num ? raw.round() : int.tryParse(raw?.toString() ?? '') ?? double.tryParse(raw?.toString() ?? '')?.round() ?? 0;
   final digits = value.abs().toString();
@@ -42,7 +47,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
   Map<String, dynamic> _cart = const {};
   Map<String, dynamic> _options = const {};
   int? _addressId;
-  int? _selectedRateId;
+  int _selectedRateIndex = 0;
   String? _paymentMethod;
   Position? _position;
   bool _loadingGps = false;
@@ -156,9 +161,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       if (!mounted) return;
       setState(() {
         _rates = rates;
-        if (_selectedRateId == null || !rates.any((v) => int.tryParse((v as Map)['id']?.toString() ?? '') == _selectedRateId)) {
-          _selectedRateId = rates.isEmpty ? null : int.tryParse((rates.first as Map)['id']?.toString() ?? '');
-        }
+        _selectedRateIndex = 0;
       });
     } catch (_) {
       if (mounted) setState(() => _lastError = 'Ongkos kirim belum bisa dihitung dari server. Coba ambil GPS dan muat ulang ongkir.');
@@ -193,10 +196,9 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       setState(() => _lastError = 'Ongkos kirim belum tersedia. Ambil GPS lalu hitung ongkir sebelum checkout.');
       return;
     }
-    final selectedRate = _rates.cast<dynamic?>().firstWhere(
-      (value) => value is Map && int.tryParse(value['id']?.toString() ?? '') == _selectedRateId,
-      orElse: () => null,
-    );
+    final selectedRate = _selectedRateIndex >= 0 && _selectedRateIndex < _rates.length
+        ? _rates[_selectedRateIndex]
+        : null;
     if (selectedRate is! Map || _paymentMethod == null) {
       setState(() => _lastError = 'Pilih layanan pengiriman dan metode pembayaran.');
       return;
@@ -298,7 +300,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                         padding: const EdgeInsets.symmetric(vertical: 5),
                         child: Row(children: [
                           Expanded(child: Text('${raw['name'] ?? 'Produk'} × ${raw['qty'] ?? 1}')),
-                          Text(_checkoutRupiah(((raw['unit_price'] ?? raw['variant_price'] ?? raw['sale_price'] ?? raw['price']) as num?)?.toDouble() ?? 0)),
+                          Text(_checkoutRupiah(_checkoutNumber(raw['unit_price'] ?? raw['variant_price'] ?? raw['sale_price'] ?? raw['price']))),
                         ]),
                       ),
                   const Divider(height: 22),
@@ -335,7 +337,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                       onChanged: (value) => setState(() {
                         _addressId = value;
                         _rates = const [];
-                        _selectedRateId = null;
+                        _selectedRateIndex = 0;
                       }),
                     ),
                     if (selectedAddress is Map)
@@ -386,16 +388,16 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                   if (!_ratesLoading && _rates.isEmpty)
                     const Text('Ambil GPS untuk meminta pilihan ongkir dari backend.', style: TextStyle(color: Colors.black54))
                   else
-                    for (final raw in _rates)
-                      if (raw is Map)
+                    for (var i = 0; i < _rates.length; i++)
+                      if (_rates[i] is Map)
                         RadioListTile<int>(
-                          value: int.tryParse(raw['id']?.toString() ?? '') ?? 0,
-                          groupValue: _selectedRateId,
-                          onChanged: (value) => setState(() => _selectedRateId = value),
+                          value: i,
+                          groupValue: _selectedRateIndex,
+                          onChanged: (value) => setState(() => _selectedRateIndex = value ?? 0),
                           contentPadding: EdgeInsets.zero,
-                          title: Text((raw['service'] ?? raw['courier'] ?? raw['method'] ?? 'Pengiriman').toString()),
-                          subtitle: Text('${raw['etd'] ?? 'Estimasi mengikuti server'} · ${raw['distance_km'] ?? '-'} km'),
-                          secondary: Text(_checkoutRupiah(raw['cost'])),
+                          title: Text(((_rates[i] as Map)['service'] ?? (_rates[i] as Map)['courier'] ?? (_rates[i] as Map)['method'] ?? 'Pengiriman').toString()),
+                          subtitle: Text('${(_rates[i] as Map)['etd'] ?? 'Estimasi mengikuti server'} · ${(_rates[i] as Map)['distance_km'] ?? '-'} km'),
+                          secondary: Text(_checkoutRupiah((_rates[i] as Map)['cost'])),
                         ),
                 ]),
               ),
