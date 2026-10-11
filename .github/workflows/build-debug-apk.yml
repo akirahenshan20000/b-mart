@@ -20,9 +20,6 @@ jobs:
           python -m pip install --quiet Pillow
           python scripts/prepare_branding.py
 
-      - name: Diagnose deployed PWA and mobile API routes
-        run: python scripts/smoke_public_api.py
-
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
@@ -70,3 +67,6 @@ jobs:
         with:
           name: bersolekmart-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Diagnose deployed PWA and mobile API routes
+        run: python scripts/smoke_public_api.py
