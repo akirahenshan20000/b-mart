@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -56,10 +58,14 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
   Map<String, dynamic>? _placedOrder;
   Map<String, dynamic>? _placedPayment;
   String? _lastError;
+  late final TextEditingController _coupon;
+  late final TextEditingController _note;
 
   @override
   void initState() {
     super.initState();
+    _coupon = TextEditingController();
+    _note = TextEditingController();
     _future = _load();
   }
 
@@ -96,6 +102,9 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       if (rawItems.isEmpty) _rates = const [];
       _lastError = null;
     });
+    if (rawItems.isNotEmpty && _position == null) {
+      unawaited(_captureGps());
+    }
   }
 
   Future<void> _reloadAll() async {
@@ -216,6 +225,8 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
         'shipping_method': (selectedRate['method'] ?? 'SOPIR').toString(),
         'shipping_rate_id': int.tryParse(selectedRate['id']?.toString() ?? '') ?? 0,
         'payment_method': _paymentMethod,
+        'coupon_code': _coupon.text.trim(),
+        'note': _note.text.trim(),
       });
       final data = _checkoutMap(response);
       final order = data['order'] is Map ? Map<String, dynamic>.from(data['order'] as Map) : <String, dynamic>{};
@@ -302,14 +313,37 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                         padding: const EdgeInsets.symmetric(vertical: 5),
                         child: Row(children: [
                           Expanded(child: Text('${raw['name'] ?? 'Produk'} × ${raw['qty'] ?? 1}')),
-                          Text(_checkoutRupiah(_checkoutNumber(raw['unit_price'] ?? raw['variant_price'] ?? raw['sale_price'] ?? raw['price']))),
+                          Text(_checkoutRupiah(raw['line_total'] ?? (_checkoutNumber(raw['unit_price'] ?? raw['variant_price'] ?? raw['sale_price'] ?? raw['price']) * _checkoutNumber(raw['qty'] ?? 1)))),
                         ]),
                       ),
                   const Divider(height: 22),
                   Row(children: [
                     const Expanded(child: Text('Subtotal')),
-                    Text(_checkoutRupiah(subtotal), style: const TextStyle(fontWeight: FontWeight.w900)),
+                    Text(_checkoutRupiah(subtotal), style: const TextStyle(fontWeight: FontWeight.w800)),
                   ]),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    const Expanded(child: Text('Estimasi ongkir')),
+                    Text(_checkoutRupiah(
+                      _selectedRateIndex >= 0 && _selectedRateIndex < _rates.length && _rates[_selectedRateIndex] is Map
+                          ? (_rates[_selectedRateIndex] as Map)['cost']
+                          : 0,
+                    )),
+                  ]),
+                  const Divider(height: 18),
+                  Row(children: [
+                    const Expanded(child: Text('Estimasi total', style: TextStyle(fontWeight: FontWeight.w900))),
+                    Text(
+                      _checkoutRupiah(_checkoutNumber(subtotal) + (
+                        _selectedRateIndex >= 0 && _selectedRateIndex < _rates.length && _rates[_selectedRateIndex] is Map
+                            ? _checkoutNumber((_rates[_selectedRateIndex] as Map)['cost'])
+                            : 0
+                      )),
+                      style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFD20A2E)),
+                    ),
+                  ]),
+                  const SizedBox(height: 6),
+                  const Text('Diskon/voucher final dihitung dan divalidasi oleh backend saat pesanan dibuat.', style: TextStyle(color: Colors.black54, fontSize: 12)),
                 ]),
               ),
             ),
@@ -415,6 +449,34 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Voucher dan catatan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _coupon,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Kode voucher (opsional)',
+                      prefixIcon: Icon(Icons.local_offer_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _note,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Catatan untuk merchant/driver (opsional)',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Pembayaran', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 8),
                   if (_paymentMethods.isEmpty)
@@ -466,6 +528,13 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       },
     ),
   );
+
+  @override
+  void dispose() {
+    _coupon.dispose();
+    _note.dispose();
+    super.dispose();
+  }
 }
 
 String _paymentLabel(String method) {
