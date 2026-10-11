@@ -782,10 +782,21 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
                 const SizedBox(width: 12),
                 FilledButton(
                   onPressed: () async {
-                    final completed = await Navigator.of(context).push<bool>(
-                      MaterialPageRoute<bool>(builder: (_) => const CustomerCheckoutPage()),
+                    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+                      MaterialPageRoute<Map<String, dynamic>>(builder: (_) => const CustomerCheckoutPage()),
                     );
-                    if (completed == true && mounted) await _refresh();
+                    if (result == null || !mounted) return;
+                    await _refresh();
+                    final order = result['order'];
+                    final payment = result['payment'];
+                    if (order is Map && mounted) {
+                      await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+                        builder: (_) => CustomerPaymentPage(
+                          order: Map<String, dynamic>.from(order),
+                          payment: payment is Map ? Map<String, dynamic>.from(payment) : const <String, dynamic>{},
+                        ),
+                      ));
+                    }
                   },
                   child: const Text('Lanjut Checkout'),
                 ),
@@ -796,6 +807,529 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
       },
     ),
   );
+}
+
+
+class CustomerCheckoutPage extends ConsumerStatefulWidget {
+  const CustomerCheckoutPage({super.key});
+
+  @override
+  ConsumerState<CustomerCheckoutPage> createState() => _CustomerCheckoutPageState();
+}
+
+class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
+  bool _loading = true;
+  bool _submitting = false;
+  bool _locating = false;
+  String? _error;
+  String? _locationError;
+  Map<String, dynamic>? _data;
+  Position? _location;
+  int? _addressId;
+  int? _rateId;
+  String? _shippingMethod;
+  String? _paymentMethod;
+  final _note = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  bool _truthy(dynamic value) => value == true || value?.toString() == '1' || value?.toString().toLowerCase() == 'true';
+
+  List<dynamic> _list(dynamic payload) {
+    if (payload is Map && payload['data'] is List) return List<dynamic>.from(payload['data'] as List);
+    return const [];
+  }
+
+  Future<Position> _currentPosition() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw Exception('Aktifkan layanan lokasi perangkat terlebih dahulu.');
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      throw Exception('Izin lokasi presisi diperlukan untuk checkout sesuai kebijakan server.');
+    }
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 18)),
+    );
+  }
+
+  Future<List<dynamic>> _requestRates(Map<String, dynamic>? address, Position? location) async {
+    final query = <String, String>{
+      'city': (address?['city'] ?? 'Kota Probolinggo').toString(),
+    };
+    if (location != null) {
+      query['lat'] = location.latitude.toString();
+      query['lng'] = location.longitude.toString();
+    }
+    final payload = await ref.read(apiClientProvider).get('/checkout/rates', query: query);
+    return _list(payload);
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final api = ref.read(apiClientProvider);
+      final optionsPayload = await api.get('/checkout/options');
+      final options = optionsPayload is Map && optionsPayload['data'] is Map
+          ? Map<String, dynamic>.from(optionsPayload['data'] as Map)
+          : <String, dynamic>{};
+      final addressPayload = await api.get('/addresses');
+      final addresses = _list(addressPayload).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+      if (_addressId == null || !addresses.any((a) => a['id'].toString() == _addressId.toString())) {
+        final selected = addresses.where((a) => _truthy(a['is_default'])).firstOrNull ?? (addresses.isNotEmpty ? addresses.first : null);
+        _addressId = selected == null ? null : int.tryParse(selected['id']?.toString() ?? '');
+      }
+      final selectedAddress = addresses.where((a) => a['id'].toString() == _addressId.toString()).firstOrNull;
+      _location = null;
+      _locationError = null;
+      if (_truthy(options['requires_device_location'])) {
+        try {
+          _location = await _currentPosition();
+          final maxAccuracy = double.tryParse((options['location_max_accuracy_m'] ?? 500).toString()) ?? 500;
+          if (_location!.accuracy > maxAccuracy) {
+            _locationError = 'Akurasi GPS ${_location!.accuracy.toStringAsFixed(0)} m; server mensyaratkan maksimal ${maxAccuracy.toStringAsFixed(0)} m. Ambil lokasi ulang di area terbuka.';
+          }
+        } catch (e) {
+          _locationError = e.toString().replaceFirst('Exception: ', '');
+        }
+      }
+      final rates = await _requestRates(selectedAddress, _location);
+      final methods = List<dynamic>.from(options['payment_methods'] as List? ?? const []).map((e) => e.toString()).toList();
+      if (_paymentMethod == null || !methods.contains(_paymentMethod)) _paymentMethod = methods.isNotEmpty ? methods.first : null;
+      if (_rateId == null || !rates.any((r) => r is Map && r['id'].toString() == _rateId.toString())) {
+        final chosenRate = rates.whereType<Map>().firstOrNull;
+        _rateId = chosenRate == null ? null : int.tryParse(chosenRate['id']?.toString() ?? '');
+        _shippingMethod = chosenRate?['method']?.toString();
+      }
+      if (mounted) setState(() {
+        _data = {'options': options, 'addresses': addresses, 'rates': rates};
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString().replaceFirst('Exception: ', ''); });
+    }
+  }
+
+  Future<void> _refreshRates() async {
+    final data = _data;
+    if (data == null) return;
+    final addresses = List<dynamic>.from(data['addresses'] as List? ?? const []);
+    final address = addresses.whereType<Map>().cast<Map<String, dynamic>>()
+        .where((a) => a['id'].toString() == _addressId.toString()).firstOrNull;
+    try {
+      final rates = await _requestRates(address, _location);
+      if (!mounted) return;
+      final chosenRate = rates.whereType<Map>().firstOrNull;
+      setState(() {
+        _rateId = chosenRate == null ? null : int.tryParse(chosenRate['id']?.toString() ?? '');
+        _shippingMethod = chosenRate?['method']?.toString();
+        _data = {...data, 'rates': rates};
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Tarif pengiriman gagal dimuat: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
+  Future<void> _captureLocation() async {
+    setState(() => _locating = true);
+    try {
+      final position = await _currentPosition();
+      final options = Map<String, dynamic>.from(_data?['options'] as Map? ?? const {});
+      final maxAccuracy = double.tryParse((options['location_max_accuracy_m'] ?? 500).toString()) ?? 500;
+      setState(() {
+        _location = position;
+        _locationError = position.accuracy > maxAccuracy
+            ? 'Akurasi GPS ${position.accuracy.toStringAsFixed(0)} m belum memenuhi batas ${maxAccuracy.toStringAsFixed(0)} m.'
+            : null;
+      });
+      await _refreshRates();
+    } catch (e) {
+      setState(() => _locationError = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  String _paymentLabel(String method) {
+    switch (method) {
+      case 'qris': return 'QRIS Bank Jatim (Mock)';
+      case 'va': return 'Virtual Account Bank Jatim (Mock)';
+      case 'transfer': return 'Transfer bank (verifikasi operator)';
+      case 'gateway': return 'Payment gateway';
+      case 'saldo': return 'Saldo member';
+      case 'cod': return 'Bayar di tempat (COD)';
+      default: return method.toUpperCase();
+    }
+  }
+
+  String _rateLabel(Map rate) {
+    final name = (rate['service'] ?? rate['label'] ?? rate['method'] ?? 'Pengiriman').toString();
+    final eta = (rate['etd'] ?? '').toString();
+    final price = formatRupiah(rate['cost']);
+    return '$name${eta.isNotEmpty ? ' · $eta' : ''} — $price';
+  }
+
+  Future<void> _submit() async {
+    final data = _data;
+    if (data == null) return;
+    final options = Map<String, dynamic>.from(data['options'] as Map? ?? const {});
+    final addresses = List<dynamic>.from(data['addresses'] as List? ?? const []);
+    final rates = List<dynamic>.from(data['rates'] as List? ?? const []);
+    final address = addresses.whereType<Map>().where((a) => a['id'].toString() == _addressId.toString()).firstOrNull;
+    final rate = rates.whereType<Map>().where((r) => r['id'].toString() == _rateId.toString()).firstOrNull;
+    final methods = List<dynamic>.from(options['payment_methods'] as List? ?? const []).map((e) => e.toString()).toList();
+    if (address == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pilih atau tambahkan alamat pengiriman terlebih dahulu.')));
+      return;
+    }
+    if (rate == null || _shippingMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Belum ada tarif pengiriman aktif dari server. Checkout tidak dapat dilanjutkan.')));
+      return;
+    }
+    if (_paymentMethod == null || !methods.contains(_paymentMethod)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Belum ada metode pembayaran yang diizinkan backend.')));
+      return;
+    }
+    if (_truthy(options['can_checkout']) == false && options.containsKey('can_checkout')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Akun ini belum memenuhi syarat checkout pada mode UMKM.')));
+      return;
+    }
+    if (_truthy(options['requires_device_location'])) {
+      if (_location == null || (_locationError?.isNotEmpty ?? false)) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_locationError ?? 'Lokasi perangkat wajib tersedia.')));
+        return;
+      }
+      final maxAccuracy = double.tryParse((options['location_max_accuracy_m'] ?? 500).toString()) ?? 500;
+      if (_location!.accuracy > maxAccuracy) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Akurasi GPS belum memenuhi syarat server. Ambil lokasi ulang.')));
+        return;
+      }
+    }
+    setState(() => _submitting = true);
+    try {
+      final body = <String, dynamic>{
+        'address_id': _addressId,
+        'shipping_method': _shippingMethod,
+        'shipping_rate_id': _rateId,
+        'payment_method': _paymentMethod,
+        'guest_latitude': _location?.latitude,
+        'guest_longitude': _location?.longitude,
+        'guest_accuracy': _location?.accuracy,
+        'note': _note.text.trim(),
+      };
+      final response = await ref.read(apiClientProvider).post('/checkout', body);
+      final result = response is Map && response['data'] is Map
+          ? Map<String, dynamic>.from(response['data'] as Map)
+          : <String, dynamic>{};
+      final order = result['order'];
+      final payment = result['payment'];
+      if (order is! Map) throw Exception('Server tidak mengembalikan detail order. Periksa log backend sebelum mencoba kembali.');
+      if (!mounted) return;
+      Navigator.of(context).pop(<String, dynamic>{
+        'order': Map<String, dynamic>.from(order),
+        'payment': payment is Map ? Map<String, dynamic>.from(payment) : <String, dynamic>{},
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Checkout gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Scaffold(appBar: AppBar(title: Text('Checkout')), body: Center(child: CircularProgressIndicator()));
+    if (_error != null || _data == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Checkout')),
+        body: Center(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.cloud_off_outlined, size: 42, color: Color(0xFFD20A2E)),
+            const SizedBox(height: 12),
+            Text(_error ?? 'Checkout belum dapat dimuat.', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: _load, child: const Text('Coba lagi')),
+          ]),
+        )),
+      );
+    }
+    final options = Map<String, dynamic>.from(_data!['options'] as Map? ?? const {});
+    final addresses = List<dynamic>.from(_data!['addresses'] as List? ?? const []);
+    final rates = List<dynamic>.from(_data!['rates'] as List? ?? const []);
+    final methods = List<dynamic>.from(options['payment_methods'] as List? ?? const []).map((e) => e.toString()).toList();
+    final selectedAddress = addresses.whereType<Map>().where((a) => a['id'].toString() == _addressId.toString()).firstOrNull;
+    final canCheckout = !options.containsKey('can_checkout') || _truthy(options['can_checkout']);
+    final requiresLocation = _truthy(options['requires_device_location']);
+    final locationGood = !requiresLocation || (_location != null && (_locationError?.isEmpty ?? true));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Checkout')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
+          const Text('Alamat pengiriman', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          if (addresses.isEmpty)
+            Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+              const Text('Belum ada alamat tersimpan. Tambahkan alamat yang valid di Kota Probolinggo sebelum checkout.', textAlign: TextAlign.center),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
+                  await _load();
+                },
+                icon: const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Kelola alamat'),
+              ),
+            ])))
+          else
+            Card(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: DropdownButtonFormField<int>(
+              value: _addressId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Pilih alamat utama'),
+              items: addresses.whereType<Map>().map((raw) => Map<String, dynamic>.from(raw)).map((a) {
+                final id = int.tryParse(a['id']?.toString() ?? '') ?? 0;
+                final label = '${a['label'] ?? 'Alamat'} — ${a['recipient_name'] ?? ''}';
+                final area = [a['district'], a['village']].where((v) => v != null && v.toString().isNotEmpty).join(', ');
+                return DropdownMenuItem<int>(value: id, child: Text('$label${area.isNotEmpty ? ' · $area' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis));
+              }).toList(),
+              onChanged: (value) async {
+                setState(() => _addressId = value);
+                await _refreshRates();
+              },
+            ))),
+          const SizedBox(height: 18),
+          const Text('Lokasi perangkat', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          Card(child: Padding(padding: const EdgeInsets.all(14), child: Row(children: [
+            Icon(locationGood ? Icons.my_location_rounded : Icons.location_off_rounded, color: locationGood ? const Color(0xFF147D58) : const Color(0xFFD20A2E)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(
+              !requiresLocation
+                  ? 'Server tidak mewajibkan GPS untuk checkout ini.'
+                  : locationGood
+                      ? 'Lokasi diperoleh · akurasi ${_location!.accuracy.toStringAsFixed(0)} m'
+                      : (_locationError ?? 'Lokasi presisi diperlukan oleh backend.'),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            )),
+            if (requiresLocation) IconButton(
+              tooltip: 'Ambil lokasi ulang',
+              onPressed: _locating ? null : _captureLocation,
+              icon: _locating ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh),
+            ),
+          ]))),
+          const SizedBox(height: 18),
+          const Text('Metode pengiriman', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          if (rates.isEmpty)
+            const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('Tidak ada tarif pengiriman aktif. Pilihan ini berasal dari backend; hubungi operator untuk memeriksa konfigurasi pengiriman.')))
+          else
+            ...rates.whereType<Map>().map((raw) {
+              final rate = Map<String, dynamic>.from(raw);
+              final id = int.tryParse(rate['id']?.toString() ?? '') ?? 0;
+              return Card(
+                child: RadioListTile<int>(
+                  value: id,
+                  groupValue: _rateId,
+                  onChanged: (value) => setState(() {
+                    _rateId = value;
+                    _shippingMethod = rate['method']?.toString();
+                  }),
+                  title: Text(_rateLabel(rate), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  dense: true,
+                ),
+              );
+            }),
+          const SizedBox(height: 18),
+          const Text('Metode pembayaran', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          if (methods.isEmpty)
+            const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('Backend tidak menyediakan metode pembayaran yang aktif. Tidak ada pembayaran yang dibuat.')))
+          else
+            ...methods.map((method) => Card(child: RadioListTile<String>(
+              value: method,
+              groupValue: _paymentMethod,
+              onChanged: (value) => setState(() => _paymentMethod = value),
+              title: Text(_paymentLabel(method), style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: method == 'qris' || method == 'va'
+                  ? const Text('Simulasi Bank Jatim mengikuti status transaksi dari server.')
+                  : null,
+            ))),
+          const SizedBox(height: 18),
+          const Text('Catatan pesanan (opsional)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          TextField(controller: _note, maxLines: 3, decoration: const InputDecoration(hintText: 'Petunjuk tambahan untuk pesanan')),
+          const SizedBox(height: 8),
+          if (!canCheckout)
+            const Text('Akun belum memenuhi syarat checkout untuk mode UMKM.', style: TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w700)),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: FilledButton.icon(
+          onPressed: _submitting || addresses.isEmpty || rates.isEmpty || methods.isEmpty || !locationGood || !canCheckout ? null : _submit,
+          icon: _submitting ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2,color: Colors.white)) : const Icon(Icons.lock_outline_rounded),
+          label: Text(_submitting ? 'Memproses pesanan…' : 'Buat Pesanan'),
+        ),
+      )),
+    );
+  }
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+}
+
+class CustomerPaymentPage extends ConsumerStatefulWidget {
+  const CustomerPaymentPage({super.key, required this.order, required this.payment});
+  final Map<String, dynamic> order;
+  final Map<String, dynamic> payment;
+
+  @override
+  ConsumerState<CustomerPaymentPage> createState() => _CustomerPaymentPageState();
+}
+
+class _CustomerPaymentPageState extends ConsumerState<CustomerPaymentPage> {
+  late Map<String, dynamic> _order;
+  late Map<String, dynamic> _payment;
+  bool _checking = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = Map<String, dynamic>.from(widget.order);
+    _payment = Map<String, dynamic>.from(widget.payment);
+  }
+
+  String _status() => (_payment['status'] ?? _order['flow_state'] ?? _order['status'] ?? 'unknown').toString();
+  bool get _paid => const {'paid', 'success', 'completed', 'captured'}.contains(_status().toLowerCase());
+
+  Future<void> _checkStatus() async {
+    final id = int.tryParse(_order['id']?.toString() ?? '');
+    if (id == null) return;
+    setState(() { _checking = true; _error = null; });
+    try {
+      final response = await ref.read(apiClientProvider).get('/orders/$id');
+      final data = response is Map && response['data'] is Map ? Map<String, dynamic>.from(response['data'] as Map) : <String, dynamic>{};
+      final payment = data['payment'] is Map ? Map<String, dynamic>.from(data['payment'] as Map) : <String, dynamic>{};
+      if (mounted) setState(() { _order = data.isEmpty ? _order : data; _payment = payment.isEmpty ? _payment : payment; });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _openMockPayment() async {
+    final code = (_order['code'] ?? '').toString();
+    if (code.isEmpty) return;
+    final uri = Uri.https('bersolekmart.com', '/payment/mock/$code');
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!launched && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Halaman simulasi pembayaran tidak dapat dibuka.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Halaman simulasi pembayaran gagal dibuka.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = _payment['provider_payload'] is Map
+        ? Map<String, dynamic>.from(_payment['provider_payload'] as Map)
+        : <String, dynamic>{};
+    final method = (_payment['method'] ?? _order['payment_method'] ?? '').toString();
+    final status = _status();
+    final amount = _payment['amount'] ?? _order['total'];
+    final qrImage = (payload['qr_image_url'] ?? '').toString();
+    final vaNumber = (payload['va_number'] ?? '').toString();
+    final provider = (_payment['provider'] ?? payload['provider'] ?? '').toString().toLowerCase();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Pembayaran Pesanan')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: _paid ? const Color(0xFFE5F7ED) : const Color(0xFFFFF0F2),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(children: [
+              Icon(_paid ? Icons.check_circle_rounded : Icons.hourglass_top_rounded, size: 42, color: _paid ? const Color(0xFF147D58) : const Color(0xFFD20A2E)),
+              const SizedBox(height: 8),
+              Text(_paid ? 'Pembayaran terverifikasi server' : 'Status pembayaran: $status',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900), textAlign: TextAlign.center),
+              const SizedBox(height: 4),
+              Text('Order ${_order['code'] ?? '-'}', style: const TextStyle(color: Colors.black54)),
+              const SizedBox(height: 8),
+              Text(formatRupiah(amount), style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+            ]),
+          ),
+          const SizedBox(height: 18),
+          Card(child: ListTile(
+            leading: const Icon(Icons.payment_rounded, color: Color(0xFFD20A2E)),
+            title: const Text('Metode pembayaran'),
+            subtitle: Text(method.toUpperCase()),
+          )),
+          if (!_paid && provider.contains('mock_bank_jatim') && method == 'qris') ...[
+            const SizedBox(height: 14),
+            const Text('QRIS Bank Jatim (Mock)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            if (qrImage.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: Image.network(
+                  qrImage, width: 240, height: 240, fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const Icon(Icons.qr_code_2_rounded, size: 180, color: Color(0xFF171113)),
+                )),
+              ),
+            if ((payload['qr_payload'] ?? '').toString().isNotEmpty)
+              SelectableText((payload['qr_payload']).toString(), textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            const Text('Ini adalah simulasi Bank Jatim. Status pembayaran hanya berubah setelah server menerima callback/transaksi mock yang sah.',
+              style: TextStyle(color: Colors.black54, height: 1.4)),
+          ],
+          if (!_paid && provider.contains('mock_bank_jatim') && method == 'va') ...[
+            const SizedBox(height: 14),
+            const Text('Virtual Account Bank Jatim (Mock)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            SelectableText(vaNumber.isEmpty ? 'Nomor VA belum diberikan backend.' : vaNumber,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.2), textAlign: TextAlign.center),
+            const SizedBox(height: 6),
+            const Text('Gunakan hanya untuk pengujian sandbox. Nomor VA dan status ditampilkan dari respons backend.',
+              style: TextStyle(color: Colors.black54, height: 1.4)),
+          ],
+          if (!_paid && provider.contains('mock_bank_jatim')) ...[
+            const SizedBox(height: 14),
+            FilledButton.icon(onPressed: _openMockPayment, icon: const Icon(Icons.open_in_browser_rounded), label: const Text('Buka simulasi Bank Jatim')),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(_error!, style: const TextStyle(color: Color(0xFFD20A2E))),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _checking ? null : _checkStatus,
+            icon: _checking ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh_rounded),
+            label: Text(_checking ? 'Memeriksa…' : 'Periksa status pembayaran'),
+          ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Kembali ke aplikasi'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class CustomerCategories extends ConsumerStatefulWidget {
