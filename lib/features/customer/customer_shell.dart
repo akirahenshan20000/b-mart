@@ -205,7 +205,9 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   // Keep optional CMS/category calls independent from the primary product request.
   late Future<List<dynamic>> _future;
   final _search = TextEditingController();
+  Timer? _searchDebounce;
   String? _category;
+  String _sortBy = 'recommended';
   List<dynamic> _categories = const [];
   List<dynamic> _heroSlides = const [];
   String _apiBase = ApiClient.defaultBaseUrl;
@@ -227,14 +229,14 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     }
   }
 
-  Future<bool> _addToCart(Map<String, dynamic> product) async {
+  Future<bool> _addToCart(Map<String, dynamic> product, {int quantity = 1}) async {
     final id = int.tryParse(product['id']?.toString() ?? '') ?? 0;
     if (id < 1) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ini tidak memiliki ID yang valid.')));
       return false;
     }
     try {
-      await ref.read(apiClientProvider).post('/cart/items', {'product_id': id, 'qty': 1});
+      await ref.read(apiClientProvider).post('/cart/items', {'product_id': id, 'qty': quantity});
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang.')));
       widget.onOpenCart?.call();
@@ -255,9 +257,29 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
     try {
       final payload = await api.get('/catalog/products', query: query);
-      final products = catalogProductsFromPayload(payload);
+      final products = List<dynamic>.from(catalogProductsFromPayload(payload));
+      double effectivePrice(dynamic raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        final base = _number(item['price']);
+        final sale = _number(item['sale_price']);
+        return sale > 0 && base > 0 && sale < base ? sale : base;
+      }
+
+      switch (_sortBy) {
+        case 'price_low':
+          products.sort((a, b) => effectivePrice(a).compareTo(effectivePrice(b)));
+          break;
+        case 'price_high':
+          products.sort((a, b) => effectivePrice(b).compareTo(effectivePrice(a)));
+          break;
+        case 'name':
+          products.sort((a, b) => readableApiValue(a['name']).toLowerCase()
+              .compareTo(readableApiValue(b['name']).toLowerCase()));
+          break;
+        // "recommended" preserves the backend's existing order.
+      }
       if (kDebugMode) {
-        debugPrint('[BersolekMart Catalog] products loaded=${products.length}; query=${query.keys.join(',')}.');
+        debugPrint('[BersolekMart Catalog] products loaded=${products.length}; sort=$_sortBy; query=${query.keys.join(',')}.');
       }
       return products;
     } catch (error) {
@@ -329,8 +351,16 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   }
 
   void _reload() {
+    _searchDebounce?.cancel();
     setState(() => _future = _loadProducts());
-    _loadOptionalContent();
+  }
+
+  void _scheduleSearch(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _reload();
+    });
   }
 
   Future<void> _refresh() async {
@@ -368,16 +398,17 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 18),
             children: [
               _CmsHeroCarousel(
                 slides: _heroSlides,
                 apiBase: apiBase,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               TextField(
                 controller: _search,
                 textInputAction: TextInputAction.search,
+                onChanged: _scheduleSearch,
                 onSubmitted: (_) => _reload(),
                 decoration: InputDecoration(
                   hintText: 'Cari produk, toko, atau kategori…',
@@ -388,7 +419,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 14),
               Row(children: [
                 const Expanded(child: Text('Kategori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
                 TextButton(
@@ -401,7 +432,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                 ),
               ]),
               SizedBox(
-                height: 94,
+                height: 82,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: categories.length + 1,
@@ -427,12 +458,28 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                   },
                 ),
               ),
-              const SizedBox(height: 22),
-              Row(children: [
-                const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-                Text('${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 12)),
-              ]),
               const SizedBox(height: 12),
+              Row(children: [
+                const Expanded(child: Text('Produk UMKM Lokal', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+                Text('${items.length} produk', style: const TextStyle(color: Colors.black54, fontSize: 11)),
+                const SizedBox(width: 2),
+                PopupMenuButton<String>(
+                  tooltip: 'Urutkan produk',
+                  icon: const Icon(Icons.sort_rounded, size: 22),
+                  onSelected: (value) {
+                    if (value == _sortBy) return;
+                    setState(() => _sortBy = value);
+                    _reload();
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'recommended', child: Text('Rekomendasi')),
+                    PopupMenuItem(value: 'price_low', child: Text('Harga terendah')),
+                    PopupMenuItem(value: 'price_high', child: Text('Harga tertinggi')),
+                    PopupMenuItem(value: 'name', child: Text('Nama A–Z')),
+                  ],
+                ),
+              ]),
+              const SizedBox(height: 8),
               if (items.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 8),
@@ -478,7 +525,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: items.length,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, childAspectRatio: .60, crossAxisSpacing: 12, mainAxisSpacing: 12,
+                    crossAxisCount: 2, childAspectRatio: .73, crossAxisSpacing: 10, mainAxisSpacing: 10,
                   ),
                   itemBuilder: (context, index) {
                     final product = Map<String, dynamic>.from(items[index] as Map);
@@ -488,24 +535,35 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                     final image = (product['image'] ?? '').toString();
                     return InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: () => _showProduct(context, product, apiBase, onAddToCart: () => _addToCart(product)),
+                      onTap: () => _showProduct(
+                        context,
+                        product,
+                        apiBase,
+                        onAddToCart: (quantity) => _addToCart(product, quantity: quantity),
+                      ),
                       child: Card(
                         clipBehavior: Clip.antiAlias,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(child: ProductImageView(path: image, apiBase: apiBase)),
+                            AspectRatio(
+                              aspectRatio: 1.30,
+                              child: Hero(
+                                tag: 'product-${product['id']}',
+                                child: ProductImageView(path: image, apiBase: apiBase),
+                              ),
+                            ),
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+                              padding: const EdgeInsets.fromLTRB(9, 8, 9, 9),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(readableApiValue(product['name'], fallback: 'Produk'), maxLines: 2, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2)),
-                                  const SizedBox(height: 7),
+                                  const SizedBox(height: 5),
                                   Text(formatRupiah(price), maxLines: 1, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900, fontSize: 15)),
-                                  const SizedBox(height: 5),
+                                  const SizedBox(height: 3),
                                   Text(readableApiValue(product['store_name'], fallback: 'Toko UMKM'), maxLines: 1, overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 11, color: Colors.black54)),
                                 ],
@@ -526,6 +584,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
@@ -570,10 +629,26 @@ class _ImageFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: const Color(0xFFF4EEEE),
+    color: const Color(0xFFF7EFF1),
     alignment: Alignment.center,
-    child: Icon(loading ? Icons.hourglass_top_rounded : Icons.image_not_supported_outlined,
-      size: 42, color: const Color(0xFFB7AEB0)),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (loading)
+          const SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD20A2E)),
+          )
+        else
+          const Icon(Icons.image_not_supported_outlined, size: 30, color: Color(0xFF89797D)),
+        const SizedBox(height: 7),
+        Text(
+          loading ? 'Memuat foto…' : 'Foto tidak tersedia',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF89797D)),
+        ),
+      ],
+    ),
   );
 }
 
@@ -623,57 +698,249 @@ double _number(dynamic value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
-void _showProduct(BuildContext context, Map<String, dynamic> product, String apiBase, {required Future<bool> Function() onAddToCart}) {
-  final base = _number(product['price']);
-  final sale = _number(product['sale_price']);
-  final price = sale > 0 && base > 0 && sale < base ? sale : base;
-  showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    backgroundColor: Colors.white,
-    builder: (context) => SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: SizedBox(height: 230, width: double.infinity,
-                child: ProductImageView(path: (product['image'] ?? '').toString(), apiBase: apiBase)),
-            ),
-            const SizedBox(height: 16),
-            Text(readableApiValue(product['name'], fallback: 'Produk'), style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            Text(formatRupiah(price), style: const TextStyle(fontSize: 22, color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Text(readableApiValue(product['store_name'], fallback: 'UMKM Lokal'), style: const TextStyle(color: Colors.black54)),
-            const SizedBox(height: 14),
-            Text(readableApiValue(product['description'], fallback: 'Informasi produk belum tersedia.'), style: const TextStyle(height: 1.45)),
-            const SizedBox(height: 12),
-            Text('Stok tersedia: ${product['stock'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 18),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () async {
-                  final added = await onAddToCart();
-                  if (added && context.mounted) Navigator.of(context).pop();
-                },
-                icon: const Icon(Icons.add_shopping_cart_rounded),
-                label: const Text('Tambah ke Keranjang'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text('Harga dan stok mengikuti data server BersolekMart.',
-              style: TextStyle(fontSize: 12, color: Colors.black54)),
-          ],
-        ),
+void _showProduct(
+  BuildContext context,
+  Map<String, dynamic> product,
+  String apiBase, {
+  required Future<bool> Function(int quantity) onAddToCart,
+}) {
+  Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: (_) => _CustomerProductDetailPage(
+        product: product,
+        apiBase: apiBase,
+        onAddToCart: onAddToCart,
       ),
     ),
   );
+}
+
+class _CustomerProductDetailPage extends StatefulWidget {
+  const _CustomerProductDetailPage({
+    required this.product,
+    required this.apiBase,
+    required this.onAddToCart,
+  });
+
+  final Map<String, dynamic> product;
+  final String apiBase;
+  final Future<bool> Function(int quantity) onAddToCart;
+
+  @override
+  State<_CustomerProductDetailPage> createState() => _CustomerProductDetailPageState();
+}
+
+class _CustomerProductDetailPageState extends State<_CustomerProductDetailPage> {
+  int _quantity = 1;
+  bool _adding = false;
+
+  num get _basePrice => _number(widget.product['price']);
+  num get _salePrice => _number(widget.product['sale_price']);
+  num get _price => _salePrice > 0 && _basePrice > 0 && _salePrice < _basePrice
+      ? _salePrice
+      : _basePrice;
+  int? get _stock {
+    final raw = widget.product['stock'];
+    if (raw == null || raw.toString().trim().isEmpty) return null;
+    return int.tryParse(raw.toString());
+  }
+  bool get _outOfStock => _stock != null && _stock! <= 0;
+
+  Future<void> _add() async {
+    if (_adding || _outOfStock) return;
+    setState(() => _adding = true);
+    try {
+      final added = await widget.onAddToCart(_quantity);
+      if (added && mounted) Navigator.of(context).pop(true);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = readableApiValue(widget.product['name'], fallback: 'Produk UMKM');
+    final description = readableApiValue(
+      widget.product['description'],
+      fallback: 'Informasi tambahan produk belum tersedia.',
+    );
+    final storeName = readableApiValue(widget.product['store_name'], fallback: 'UMKM lokal');
+    final image = (widget.product['image'] ?? '').toString();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F4F4),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF171113),
+        elevation: 0,
+        title: const Text('Detail Produk', style: TextStyle(fontWeight: FontWeight.w900)),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: AspectRatio(
+                    aspectRatio: 1.08,
+                    child: Hero(
+                      tag: 'product-${widget.product['id']}',
+                      child: ProductImageView(path: image, apiBase: widget.apiBase),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(17),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFEDE5E6)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFE8EB),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text('PRODUK UMKM',
+                              style: TextStyle(color: Color(0xFFD20A2E), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: .7)),
+                          ),
+                          const Spacer(),
+                          if (_outOfStock)
+                            const Text('Stok habis', style: TextStyle(color: Color(0xFFB00020), fontWeight: FontWeight.w800, fontSize: 12)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(name, style: const TextStyle(fontSize: 24, height: 1.15, fontWeight: FontWeight.w900, letterSpacing: -.4)),
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(child: Text(
+                            formatRupiah(_price),
+                            style: const TextStyle(color: Color(0xFFD20A2E), fontSize: 25, fontWeight: FontWeight.w900),
+                          )),
+                          if (_price < _basePrice)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(formatRupiah(_basePrice),
+                                style: const TextStyle(color: Colors.black45, decoration: TextDecoration.lineThrough, fontSize: 13)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(Icons.storefront_outlined, size: 19, color: Color(0xFFD20A2E)),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.w800))),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 14),
+                      const Text('Deskripsi produk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      Text(description, style: const TextStyle(color: Color(0xFF5F5659), height: 1.5)),
+                      if (_stock != null) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black54),
+                            const SizedBox(width: 8),
+                            Text('Stok tersedia: ${_stock!}',
+                              style: TextStyle(fontWeight: FontWeight.w700, color: _outOfStock ? const Color(0xFFB00020) : Colors.black87)),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Expanded(child: Text('Jumlah', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15))),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F3F4),
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(color: const Color(0xFFE8DDE0)),
+                            ),
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _adding || _quantity <= 1 ? null : () => setState(() => _quantity--),
+                                  icon: const Icon(Icons.remove_rounded),
+                                ),
+                                SizedBox(width: 28, child: Text('$_quantity', textAlign: TextAlign.center,
+                                  style: const TextStyle(fontWeight: FontWeight.w900))),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _adding || _outOfStock || (_stock != null && _quantity >= _stock!)
+                                      ? null
+                                      : () => setState(() => _quantity++),
+                                  icon: const Icon(Icons.add_rounded),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Center(child: Text('Harga dan stok mengikuti data server BersolekMart.',
+                  style: TextStyle(fontSize: 11, color: Colors.black54))),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [BoxShadow(color: Color(0x10000000), blurRadius: 16, offset: Offset(0, -4))],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Total sementara', style: TextStyle(color: Colors.black54, fontSize: 11)),
+                        const SizedBox(height: 2),
+                        Text(formatRupiah(_price * _quantity),
+                          style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _adding || _outOfStock ? null : _add,
+                      icon: _adding
+                          ? const SizedBox.square(dimension: 17, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.add_shopping_cart_rounded),
+                      label: Text(_adding ? 'Menambahkan…' : _outOfStock ? 'Stok habis' : 'Tambah ke Keranjang'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class CustomerCart extends ConsumerStatefulWidget {
@@ -729,7 +996,7 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Keranjang')),
+    backgroundColor: const Color(0xFFF7F4F4),
     body: FutureBuilder<Map<String, dynamic>>(
       future: _future,
       builder: (context, snapshot) {
