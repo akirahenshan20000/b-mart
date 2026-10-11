@@ -84,7 +84,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
           : <dynamic>[];
       _paymentMethods = methods.map((value) => value.toString()).where((value) => value.isNotEmpty).toList();
       if (_addressId == null || !addresses.any((value) => int.tryParse((value as Map)['id']?.toString() ?? '') == _addressId)) {
-        final preferred = addresses.cast<dynamic?>().firstWhere(
+        final preferred = addresses.firstWhere(
           (value) => value is Map && (value['is_default'] == true || value['is_default']?.toString() == '1'),
           orElse: () => addresses.isNotEmpty ? addresses.first : null,
         );
@@ -268,15 +268,17 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
             onRetry: _reloadAll,
           );
         }
-        if (_placedOrder != null) return _OrderCreatedView(
-          order: _placedOrder!,
-          payment: _placedPayment ?? const {},
-          onContinuePayment: _continuePayment,
-          onDone: () => Navigator.of(context).pop(true),
-        );
+        if (_placedOrder != null) {
+          return _OrderCreatedView(
+            order: _placedOrder!,
+            payment: _placedPayment ?? const {},
+            onContinuePayment: _continuePayment,
+            onDone: () => Navigator.of(context).pop(true),
+          );
+        }
         final items = _cart['items'] is List ? List<dynamic>.from(_cart['items'] as List) : <dynamic>[];
         final subtotal = _cart['subtotal'] ?? 0;
-        final selectedAddress = _addresses.cast<dynamic?>().firstWhere(
+        final selectedAddress = _addresses.firstWhere(
           (v) => v is Map && int.tryParse(v['id']?.toString() ?? '') == _addressId,
           orElse: () => null,
         );
@@ -324,7 +326,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                     const _CheckoutNotice(icon: Icons.location_off_outlined, title: 'Belum ada alamat tersimpan', message: 'Tambahkan alamat sebelum checkout.')
                   else ...[
                     DropdownButtonFormField<int>(
-                      value: _addressId,
+                      initialValue: _addressId,
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Pilih alamat'),
                       items: _addresses.map((raw) {
@@ -388,17 +390,23 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                   if (!_ratesLoading && _rates.isEmpty)
                     const Text('Ambil GPS untuk meminta pilihan ongkir dari backend.', style: TextStyle(color: Colors.black54))
                   else
-                    for (var i = 0; i < _rates.length; i++)
-                      if (_rates[i] is Map)
-                        RadioListTile<int>(
-                          value: i,
-                          groupValue: _selectedRateIndex,
-                          onChanged: (value) => setState(() => _selectedRateIndex = value ?? 0),
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(((_rates[i] as Map)['service'] ?? (_rates[i] as Map)['courier'] ?? (_rates[i] as Map)['method'] ?? 'Pengiriman').toString()),
-                          subtitle: Text('${(_rates[i] as Map)['etd'] ?? 'Estimasi mengikuti server'} · ${(_rates[i] as Map)['distance_km'] ?? '-'} km'),
-                          secondary: Text(_checkoutRupiah((_rates[i] as Map)['cost'])),
-                        ),
+                    RadioGroup<int>(
+                      groupValue: _selectedRateIndex,
+                      onChanged: (value) => setState(() => _selectedRateIndex = value ?? 0),
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < _rates.length; i++)
+                            if (_rates[i] is Map)
+                              RadioListTile<int>(
+                                value: i,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(((_rates[i] as Map)['service'] ?? (_rates[i] as Map)['courier'] ?? (_rates[i] as Map)['method'] ?? 'Pengiriman').toString()),
+                                subtitle: Text('${(_rates[i] as Map)['etd'] ?? 'Estimasi mengikuti server'} · ${(_rates[i] as Map)['distance_km'] ?? '-'} km'),
+                                secondary: Text(_checkoutRupiah((_rates[i] as Map)['cost'])),
+                              ),
+                        ],
+                      ),
+                    ),
                 ]),
               ),
             ),
@@ -412,15 +420,21 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
                   if (_paymentMethods.isEmpty)
                     const Text('Metode pembayaran belum diberikan oleh backend. Checkout dinonaktifkan agar tidak membuat alur pembayaran fiktif.', style: TextStyle(color: Colors.black54))
                   else
-                    for (final method in _paymentMethods)
-                      RadioListTile<String>(
-                        value: method,
-                        groupValue: _paymentMethod,
-                        contentPadding: EdgeInsets.zero,
-                        onChanged: (value) => setState(() => _paymentMethod = value),
-                        title: Text(_paymentLabel(method)),
-                        subtitle: Text(_paymentDescription(method)),
+                    RadioGroup<String>(
+                      groupValue: _paymentMethod,
+                      onChanged: (value) => setState(() => _paymentMethod = value),
+                      child: Column(
+                        children: [
+                          for (final method in _paymentMethods)
+                            RadioListTile<String>(
+                              value: method,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(_paymentLabel(method)),
+                              subtitle: Text(_paymentDescription(method)),
+                            ),
+                        ],
                       ),
+                    ),
                 ]),
               ),
             ),
