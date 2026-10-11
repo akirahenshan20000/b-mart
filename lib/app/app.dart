@@ -86,7 +86,12 @@ class BersolekMartApp extends ConsumerWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
       ),
-      home: auth.when(
+      // Keep the login form mounted during an API request. A full-screen
+      // splash is reserved for the initial session restore, not button loading.
+      home: auth.isLoading &&
+              (selectedService == 'customer' || selectedService == 'driver')
+          ? LoginScreen(expectedRole: selectedService)
+          : auth.when(
         loading: () => const _Splash(),
         error: (error, _) {
           if (selectedService == 'choose') return const ServiceSelectionScreen();
