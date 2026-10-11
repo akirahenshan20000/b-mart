@@ -1851,6 +1851,14 @@ class _FullscreenRouteCard extends StatelessWidget {
                 style: TextButton.styleFrom(foregroundColor: Colors.white70),
               ),
             ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Peta © OpenStreetMap contributors · Rute jalan OSRM',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 10),
+            ),
+          ),
         ],
       ),
     );
@@ -2800,6 +2808,14 @@ class _MapSheet extends StatelessWidget {
                   label: const Text('Buka Google Maps (opsional)'),
                 ),
               ),
+            const Padding(
+              padding: EdgeInsets.only(top: 7),
+              child: Text(
+                'Peta © OpenStreetMap contributors · Rute jalan OSRM',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black45, fontSize: 10),
+              ),
+            ),
           ],
         ),
       ),
