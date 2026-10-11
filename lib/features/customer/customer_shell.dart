@@ -565,7 +565,7 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
           return Card(child: ListTile(
             leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E8), child: Icon(Icons.receipt_long, color: Color(0xFFD20A2E))),
             title: Text('${order['code'] ?? order['order_code'] ?? 'Pesanan'}', style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text('${order['flow_state'] ?? order['status'] ?? '-'}'),
+            subtitle: Text(readableApiValue(order['flow_state'] ?? order['status'])),
             trailing: Text(formatRupiah(order['total']), style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
           ));
         },
