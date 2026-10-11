@@ -63,7 +63,13 @@ class BersolekMartApp extends ConsumerWidget {
         loading: () => const _Splash(),
         error: (error, _) => LoginScreen(message: '$error', expectedRole: selectedService),
         data: (session) {
-          if (session == null) return const WelcomeSplashScreen();
+          if (session == null) {
+            if (selectedService == 'choose') return const ServiceSelectionScreen();
+            if (selectedService == 'customer' || selectedService == 'driver') {
+              return LoginScreen(expectedRole: selectedService);
+            }
+            return const WelcomeSplashScreen();
+          }
           return session.isDriver ? const DriverShell() : const CustomerShell();
         },
       ),
