@@ -58,7 +58,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: (constraints.maxHeight - 36).clamp(0, double.infinity),
+                minHeight: (constraints.maxHeight - 36).clamp(0.0, double.infinity).toDouble(),
               ),
               child: Center(
                 child: ConstrainedBox(
