@@ -33,22 +33,12 @@ class WelcomeSplashScreen extends ConsumerWidget {
             child: Column(
               children: [
                 const Spacer(),
-                Container(
-                  width: 156,
-                  height: 156,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFFF334F), Color(0xFFB60025), Color(0xFF6D0015)],
-                    ),
-                    borderRadius: BorderRadius.circular(38),
-                    border: Border.all(color: Colors.white24),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x6688001D), blurRadius: 28, offset: Offset(0, 12)),
-                    ],
-                  ),
-                  child: const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
+                Image.asset(
+                  'assets/branding/bersolek-mart-icon-512.png',
+                  width: 270,
+                  height: 210,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, size: 92, color: Colors.white),
                 ),
                 const SizedBox(height: 22),
                 const Text(
