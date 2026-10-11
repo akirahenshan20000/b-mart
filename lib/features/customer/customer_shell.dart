@@ -258,7 +258,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(child: _ProductImage(path: image, apiBase: apiBase)),
+                            Expanded(child: ProductImageView(path: image, apiBase: apiBase)),
                             Padding(
                               padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
                               child: Column(
@@ -295,8 +295,8 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
   }
 }
 
-class _ProductImage extends StatelessWidget {
-  const _ProductImage({required this.path, required this.apiBase});
+class ProductImageView extends StatelessWidget {
+  const ProductImageView({required this.path, required this.apiBase});
   final String path;
   final String apiBase;
 
@@ -395,7 +395,7 @@ void _showProduct(BuildContext context, Map<String, dynamic> product, String api
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: SizedBox(height: 230, width: double.infinity,
-                child: _ProductImage(path: (product['image'] ?? '').toString(), apiBase: apiBase)),
+                child: ProductImageView(path: (product['image'] ?? '').toString(), apiBase: apiBase)),
             ),
             const SizedBox(height: 16),
             Text((product['name'] ?? 'Produk').toString(), style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
