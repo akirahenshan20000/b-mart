@@ -97,6 +97,30 @@ class DriverJobView {
   }
 
   bool get isNew => !isCompleted && !isActive;
+
+  String get statusLabel {
+    switch (status.toLowerCase()) {
+      case 'available':
+        return 'Tersedia';
+      case 'assigned':
+        return 'Ditugaskan';
+      case 'accepted':
+        return 'Diterima';
+      case 'picking_up':
+        return 'Menuju Pickup';
+      case 'picked_up':
+        return 'Pesanan Diambil';
+      case 'delivering':
+        return 'Dalam Pengantaran';
+      case 'arrived':
+        return 'Sampai Tujuan';
+      case 'delivered':
+      case 'completed':
+        return 'Selesai';
+      default:
+        return readableDriverValue(status, fallback: 'Menunggu');
+    }
+  }
 }
 
 class DriverShell extends ConsumerStatefulWidget {
@@ -162,6 +186,19 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   DriverJobView _parseJob(dynamic raw) {
     final job = Map<String, dynamic>.from(raw as Map);
+    Map<String, dynamic> objectValue(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      if (value is String && value.trim().startsWith('{')) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        } catch (_) {
+          // Malformed optional address data must not break the order list.
+        }
+      }
+      return <String, dynamic>{};
+    }
+    final dropoff = objectValue(job['dropoff_address']);
 
     double? number(List<String> keys) {
       for (final key in keys) {
@@ -183,16 +220,18 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
     num? money = job['driver_fee'] is num
         ? job['driver_fee'] as num
-        : job['shipping_fee'] is num
-            ? job['shipping_fee'] as num
-            : null;
+        : job['fee'] is num
+            ? job['fee'] as num
+            : job['shipping_fee'] is num
+                ? job['shipping_fee'] as num
+                : null;
 
     return DriverJobView(
       id: (job['id'] ?? job['job_id'] ?? '').toString(),
       code: (job['order_code'] ?? job['code'] ?? job['order_number'] ?? 'Order').toString(),
       status: readableDriverValue(job['status'] ?? job['state'], fallback: 'Menunggu'),
       storeName: readableDriverValue(job['store_name'] ?? job['merchant_name'], fallback: 'Merchant'),
-      customerName: readableDriverValue(job['customer_name'] ?? job['buyer_name'], fallback: 'Pelanggan'),
+      customerName: readableDriverValue(job['customer_name'] ?? job['buyer_name'] ?? dropoff['recipient_name'], fallback: 'Pelanggan'),
       pickupAddress: readableDriverValue(job['pickup_address'] ?? job['store_address'] ?? job['origin_address']),
       dropoffAddress: readableDriverValue(job['dropoff_address'] ?? job['customer_address'] ?? job['destination_address']),
       price: money,
@@ -1197,7 +1236,7 @@ class _OrderCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                _StatusChip(status: job.status),
+                _StatusChip(status: job.statusLabel),
               ],
             ),
             const SizedBox(height: 14),
@@ -1475,7 +1514,7 @@ class _MapSheet extends StatelessWidget {
                     ),
                   ),
                 ),
-                _StatusChip(status: job!.status),
+                _StatusChip(status: job!.statusLabel),
               ],
             ),
             const SizedBox(height: 6),
