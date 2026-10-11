@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -261,8 +263,16 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       List<String> lngKeys, {
       bool useDropoffAddress = false,
     }) {
-      final addressLat = useDropoffAddress ? _asDouble(dropoff['latitude'] ?? dropoff['lat']) : null;
-      final addressLng = useDropoffAddress ? _asDouble(dropoff['longitude'] ?? dropoff['lng'] ?? dropoff['lon']) : null;
+      double? parseAddressCoordinate(dynamic value) {
+        if (value is num) return value.toDouble();
+        return double.tryParse(value?.toString() ?? '');
+      }
+      final addressLat = useDropoffAddress
+          ? parseAddressCoordinate(dropoff['latitude'] ?? dropoff['lat'])
+          : null;
+      final addressLng = useDropoffAddress
+          ? parseAddressCoordinate(dropoff['longitude'] ?? dropoff['lng'] ?? dropoff['lon'])
+          : null;
       final lat = number(latKeys) ?? addressLat;
       final lng = number(lngKeys) ?? addressLng;
       if (lat == null || lng == null) return null;
@@ -1195,6 +1205,7 @@ class DriverMapPage extends StatefulWidget {
     required this.snapshot,
     required this.job,
     this.fullscreen = false,
+    this.onFullscreenChanged,
   });
 
   final LocationSnapshot? snapshot;
