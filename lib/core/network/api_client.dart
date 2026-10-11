@@ -37,12 +37,18 @@ String apiErrorMessage(Object error) {
       case 'NETWORK_ERROR':
         return 'Server tidak dapat dijangkau. Periksa koneksi internet.';
     }
+    final message = error.message.trim();
+    final hasUsefulMessage =
+        message.isNotEmpty && !message.startsWith('ApiException(') && message != 'API request failed';
+    // Preserve explicit role-mismatch errors raised by the mobile client itself.
+    if (error.statusCode == 403 && (error.code == null || error.code!.isEmpty) && hasUsefulMessage) {
+      return message;
+    }
     if (error.statusCode == 401) return 'Login gagal. Periksa username/email dan password.';
     if (error.statusCode == 403) return 'Akun tidak diizinkan menggunakan layanan ini.';
     if (error.statusCode == 404) return 'Endpoint layanan belum tersedia pada server.';
     if (error.statusCode >= 500) return 'Server sedang mengalami kendala. Coba lagi nanti.';
-    final message = error.message.trim();
-    if (message.isNotEmpty && !message.startsWith('ApiException(')) return message;
+    if (hasUsefulMessage) return message;
   }
   if (error is TimeoutException) {
     return 'Server merespons terlalu lama. Periksa koneksi lalu coba lagi.';
