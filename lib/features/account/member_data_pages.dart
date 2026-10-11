@@ -18,7 +18,9 @@ List<dynamic> _payloadList(dynamic payload) =>
         : <dynamic>[];
 
 class MemberAddressBookPage extends ConsumerStatefulWidget {
-  const MemberAddressBookPage({super.key});
+  const MemberAddressBookPage({super.key, this.title = 'Alamat Pengiriman'});
+
+  final String title;
 
   @override
   ConsumerState<MemberAddressBookPage> createState() => _MemberAddressBookPageState();
@@ -76,7 +78,7 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Alamat Pengiriman'),
+      title: Text(widget.title),
       actions: [IconButton(tooltip: 'Tambah alamat', onPressed: () => _edit(), icon: const Icon(Icons.add_location_alt_outlined))],
     ),
     floatingActionButton: FloatingActionButton.extended(
