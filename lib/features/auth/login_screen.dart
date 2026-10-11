@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 import 'service_selection_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -18,9 +19,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _login = TextEditingController();
   final _password = TextEditingController();
   bool _obscure = true;
+  String? _localError;
 
   Future<void> _submit() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (_login.text.trim().isEmpty || _password.text.isEmpty) {
+      setState(() => _localError = 'Masukkan username/email dan password terlebih dahulu.');
+      return;
+    }
+    setState(() => _localError = null);
+    ref.read(authControllerProvider.notifier).clearError();
     await ref.read(authControllerProvider.notifier).login(
       _login.text,
       _password.text,
@@ -32,7 +40,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
-    final errorText = auth.hasError ? '${auth.error}' : widget.message;
+    final errorText = _localError ??
+        (auth.hasError ? apiErrorMessage(auth.error!) : widget.message);
 
     return Scaffold(
       body: SafeArea(
@@ -69,13 +78,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 28),
                   TextField(
                     controller: _login,
+                    enabled: !auth.isLoading,
                     textInputAction: TextInputAction.next,
+                    onChanged: (_) {
+                      if (_localError != null) setState(() => _localError = null);
+                      ref.read(authControllerProvider.notifier).clearError();
+                    },
                     decoration: const InputDecoration(labelText: 'Username / Email', prefixIcon: Icon(Icons.person_outline), filled: true),
                   ),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _password,
+                    enabled: !auth.isLoading,
                     obscureText: _obscure,
+                    onChanged: (_) {
+                      if (_localError != null) setState(() => _localError = null);
+                      ref.read(authControllerProvider.notifier).clearError();
+                    },
                     onSubmitted: (_) => _submit(),
                     decoration: InputDecoration(
                       labelText: 'Password',
@@ -101,7 +120,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 8),
                   TextButton(
-                    onPressed: () => ref.read(selectedServiceProvider.notifier).select('choose'),
+                    onPressed: () {
+                      ref.read(authControllerProvider.notifier).clearError();
+                      ref.read(selectedServiceProvider.notifier).select('choose');
+                    },
                     child: const Text('Ganti layanan'),
                   ),
                   const SizedBox(height: 10),

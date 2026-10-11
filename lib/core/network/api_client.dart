@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../storage/secure_store.dart';
@@ -13,6 +15,39 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode, $message)';
+}
+
+String apiErrorMessage(Object error) {
+  if (error is ApiException) {
+    switch ((error.code ?? '').toUpperCase()) {
+      case 'INVALID_CREDENTIALS':
+        return 'Username/email atau password tidak sesuai.';
+      case 'RATE_LIMITED':
+        return 'Terlalu banyak percobaan masuk. Tunggu sebentar lalu coba lagi.';
+      case 'ROLE_NOT_SUPPORTED':
+        return 'Jenis akun ini tidak dapat digunakan pada aplikasi mobile.';
+      case 'FORBIDDEN':
+        return 'Akun ini tidak memiliki akses ke layanan yang dipilih.';
+      case 'AUTH_REQUIRED':
+        return 'Sesi login berakhir. Silakan masuk kembali.';
+      case 'API_DISABLED':
+        return 'Layanan mobile sedang dinonaktifkan. Coba lagi nanti.';
+      case 'REQUEST_TIMEOUT':
+        return 'Server merespons terlalu lama. Periksa koneksi lalu coba lagi.';
+      case 'NETWORK_ERROR':
+        return 'Server tidak dapat dijangkau. Periksa koneksi internet.';
+    }
+    if (error.statusCode == 401) return 'Login gagal. Periksa username/email dan password.';
+    if (error.statusCode == 403) return 'Akun tidak diizinkan menggunakan layanan ini.';
+    if (error.statusCode == 404) return 'Endpoint layanan belum tersedia pada server.';
+    if (error.statusCode >= 500) return 'Server sedang mengalami kendala. Coba lagi nanti.';
+    final message = error.message.trim();
+    if (message.isNotEmpty && !message.startsWith('ApiException(')) return message;
+  }
+  if (error is TimeoutException) {
+    return 'Server merespons terlalu lama. Periksa koneksi lalu coba lagi.';
+  }
+  return 'Terjadi kendala saat menghubungi server. Coba lagi.';
 }
 
 class ApiClient {
@@ -42,6 +77,56 @@ class ApiClient {
     return value;
   }
 
+  Future<http.Response> _send(Future<http.Response> Function() request) async {
+    try {
+      return await request().timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw ApiException(
+        0,
+        'Koneksi ke server terlalu lama. Periksa internet lalu coba lagi.',
+        code: 'REQUEST_TIMEOUT',
+      );
+    } on http.ClientException {
+      throw ApiException(
+        0,
+        'Tidak dapat terhubung ke server BersolekMart. Periksa koneksi internet.',
+        code: 'NETWORK_ERROR',
+      );
+    }
+  }
+
+  void _debugResponse(String method, Uri uri, http.Response response) {
+    if (!kDebugMode) return;
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      decoded = null;
+    }
+
+    String shape;
+    if (decoded is Map) {
+      final data = decoded['data'];
+      if (data is List) {
+        shape = 'object(data=list:${data.length})';
+      } else if (data is Map) {
+        shape = 'object(data=object keys:${data.keys.take(10).join(',')})';
+      } else {
+        shape = 'object(keys:${decoded.keys.take(10).join(',')}, data:${data.runtimeType})';
+      }
+    } else if (decoded is List) {
+      shape = 'list:${decoded.length}';
+    } else {
+      shape = 'non-json-or-null';
+    }
+
+    // Never log authorization headers, payload values, or personal data.
+    debugPrint(
+      '[BersolekMart API] $method ${uri.path} -> HTTP ${response.statusCode}; '
+      'bytes=${response.bodyBytes.length}; $shape',
+    );
+  }
+
   Future<Map<String, String>> _headers({bool jsonBody = false, bool auth = true}) async {
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -58,17 +143,20 @@ class ApiClient {
 
   Future<dynamic> get(String path, {Map<String, String>? query, bool auth = true}) async {
     final uri = Uri.parse('${await baseUrl()}$path').replace(queryParameters: query);
-    final response = await http.get(uri, headers: await _headers(auth: auth));
+    final headers = await _headers(auth: auth);
+    final response = await _send(() => http.get(uri, headers: headers));
+    _debugResponse('GET', uri, response);
     return _parse(response);
   }
 
   Future<dynamic> post(String path, Map<String, dynamic> body, {bool auth = true}) async {
     final uri = Uri.parse('${await baseUrl()}$path');
-    final response = await http.post(
-      uri,
-      headers: await _headers(jsonBody: true, auth: auth),
-      body: jsonEncode(body),
+    final headers = await _headers(jsonBody: true, auth: auth);
+    final encodedBody = jsonEncode(body);
+    final response = await _send(
+      () => http.post(uri, headers: headers, body: encodedBody),
     );
+    _debugResponse('POST', uri, response);
     return _parse(response);
   }
 
@@ -85,12 +173,22 @@ class ApiClient {
       final error = decoded is Map ? decoded['error'] : null;
       final message = error is Map ? '${error['message'] ?? 'API request failed'}' : 'API request failed';
       final code = error is Map ? '${error['code'] ?? ''}' : null;
-      throw ApiException(response.statusCode, message, code: code);
+      throw ApiException(
+        response.statusCode,
+        message,
+        code: code == null || code.isEmpty ? null : code,
+      );
     }
 
     if (decoded is Map && decoded['ok'] == false) {
       final error = decoded['error'];
-      throw ApiException(response.statusCode, '${error is Map ? error['message'] : 'API request failed'}');
+      final message = error is Map ? '${error['message'] ?? 'API request failed'}' : 'API request failed';
+      final code = error is Map ? '${error['code'] ?? ''}' : '';
+      throw ApiException(
+        response.statusCode,
+        message,
+        code: code.isEmpty ? null : code,
+      );
     }
 
     return decoded;

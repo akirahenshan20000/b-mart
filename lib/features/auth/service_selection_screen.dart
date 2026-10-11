@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth/auth_controller.dart';
+
 
 final selectedServiceProvider =
     NotifierProvider<SelectedServiceController, String?>(SelectedServiceController.new);
@@ -102,6 +104,7 @@ class ServiceSelectionScreen extends ConsumerWidget {
               title: 'Belanja',
               subtitle: 'Temukan produk UMKM lokal dan pantau pesananmu.',
               onTap: () {
+                ref.read(authControllerProvider.notifier).clearError();
                 ref.read(selectedServiceProvider.notifier).select('customer');
                 // Root app switches to the role-specific login screen.
               },
@@ -112,6 +115,7 @@ class ServiceSelectionScreen extends ConsumerWidget {
               title: 'Driver',
               subtitle: 'Antar pesanan, kelola pengantaran, dan pantau pendapatan.',
               onTap: () {
+                ref.read(authControllerProvider.notifier).clearError();
                 ref.read(selectedServiceProvider.notifier).select('driver');
                 // Root app switches to the role-specific login screen.
               },
@@ -119,7 +123,10 @@ class ServiceSelectionScreen extends ConsumerWidget {
             const SizedBox(height: 26),
             Center(
               child: TextButton(
-                onPressed: () => ref.read(selectedServiceProvider.notifier).select(null),
+                onPressed: () {
+                  ref.read(authControllerProvider.notifier).clearError();
+                  ref.read(selectedServiceProvider.notifier).select(null);
+                },
                 child: const Text('Kembali ke halaman awal'),
               ),
             ),

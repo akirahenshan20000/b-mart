@@ -62,14 +62,41 @@ String formatRupiah(dynamic raw) {
 }
 
 List<dynamic> catalogProductsFromPayload(dynamic payload) {
-  if (payload is! Map || payload['data'] is! List) return const [];
-  return List<dynamic>.from(payload['data'] as List);
+  if (payload is! Map || payload['ok'] != true) {
+    throw const FormatException('Respons katalog bukan envelope JSON API yang sukses.');
+  }
+  final data = payload['data'];
+  if (data is! List) {
+    throw const FormatException('Field data katalog harus berupa array.');
+  }
+  for (final product in data) {
+    if (product is! Map ||
+        product['id'] == null ||
+        product['name'] == null ||
+        product['name'].toString().trim().isEmpty ||
+        !product.containsKey('price')) {
+      throw const FormatException('Salah satu item katalog tidak memiliki field produk wajib.');
+    }
+  }
+  return List<dynamic>.from(data);
+}
+
+List<dynamic> catalogCategoriesFromPayload(dynamic payload) {
+  if (payload is! Map || payload['ok'] != true || payload['data'] is! List) {
+    throw const FormatException('Respons kategori tidak sesuai kontrak API.');
+  }
+  final data = payload['data'] as List;
+  if (data.any((category) => category is! Map)) {
+    throw const FormatException('Item kategori tidak sesuai format API.');
+  }
+  return List<dynamic>.from(data);
 }
 
 String resolveMediaUrl(String raw, String apiBase) {
   final value = raw.trim();
   if (value.isEmpty) return '';
   final parsed = Uri.tryParse(value);
+  if (value.startsWith('//')) return 'https:$value';
   if (parsed != null && (parsed.scheme == 'http' || parsed.scheme == 'https')) return value;
 
   final apiUri = Uri.parse(apiBase);
@@ -201,6 +228,15 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
     final query = <String, String>{'limit': '24'};
     if (_search.text.trim().isNotEmpty) query['q'] = _search.text.trim();
     if (_category != null && _category!.isNotEmpty) query['category'] = _category!;
+    Future<dynamic> loadCategories() async {
+      try {
+        return await api.get('/catalog/categories');
+      } catch (_) {
+        // Categories are supplementary; a category failure must not hide products.
+        return null;
+      }
+    }
+
     Future<dynamic> loadCmsHome() async {
       try {
         return await api.get('/cms/home');
@@ -212,12 +248,19 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
     final results = await Future.wait([
       api.get('/catalog/products', query: query),
-      api.get('/catalog/categories'),
+      loadCategories(),
       api.baseUrl(),
       loadCmsHome(),
     ]);
-    final productPayload = results[0] as Map;
-    final categoryPayload = results[1] as Map;
+    final products = catalogProductsFromPayload(results[0]);
+    List<dynamic> categories = const [];
+    if (results[1] != null) {
+      try {
+        categories = catalogCategoriesFromPayload(results[1]);
+      } catch (error) {
+        debugPrint('[BersolekMart Catalog] category payload rejected: ${error.runtimeType}');
+      }
+    }
     final cmsPayload = results[3];
     final cms = cmsPayload is Map && cmsPayload['data'] is Map
         ? Map<String, dynamic>.from(cmsPayload['data'] as Map)
@@ -229,8 +272,8 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
             : <dynamic>[];
 
     return {
-      'products': catalogProductsFromPayload(productPayload),
-      'categories': List<dynamic>.from(categoryPayload['data'] as List? ?? const []),
+      'products': products,
+      'categories': categories,
       'apiBase': results[2] as String,
       'heroSlides': slides,
     };
@@ -323,9 +366,9 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
                   child: Column(children: [
                     Icon(Icons.inventory_2_outlined, size: 54, color: Color(0xFFB5AEB0)),
                     SizedBox(height: 10),
-                    Text('Produk belum tersedia', style: TextStyle(fontWeight: FontWeight.w800)),
+                    Text('Belum ada produk aktif untuk pilihan ini.', style: TextStyle(fontWeight: FontWeight.w800)),
                     SizedBox(height: 4),
-                    Text('Coba kata kunci atau kategori lain.', style: TextStyle(color: Colors.black54)),
+                    Text('Server mengembalikan katalog kosong. Coba kata kunci atau kategori lain.', style: TextStyle(color: Colors.black54)),
                   ]),
                 )
               else

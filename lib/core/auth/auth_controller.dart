@@ -34,10 +34,19 @@ class AuthController extends AsyncNotifier<Session?> {
         return null;
       }
       return session;
-    } catch (_) {
-      await _store.deleteToken();
-      return null;
+    } catch (error) {
+      if (error is ApiException && (error.statusCode == 401 || error.statusCode == 403)) {
+        await _store.deleteToken();
+        return null;
+      }
+      // Keep the token when the server/network is temporarily unavailable.
+      // The app shows a retry screen instead of silently logging the user out.
+      rethrow;
     }
+  }
+
+  void clearError() {
+    if (state.hasError) state = const AsyncData<Session?>(null);
   }
 
   Future<void> login(String login, String password, String deviceName, {String? expectedRole}) async {
@@ -53,8 +62,23 @@ class AuthController extends AsyncNotifier<Session?> {
         auth: false,
       );
 
+      if (payload is! Map || payload['data'] is! Map) {
+        throw ApiException(
+          502,
+          'Respons login dari server tidak sesuai format.',
+          code: 'INVALID_RESPONSE',
+        );
+      }
       final data = Map<String, dynamic>.from(payload['data'] as Map);
-      final token = '${data['token']}';
+      final tokenValue = data['token'];
+      if (tokenValue is! String || tokenValue.trim().isEmpty || data['user'] is! Map) {
+        throw ApiException(
+          502,
+          'Respons login dari server tidak lengkap.',
+          code: 'INVALID_RESPONSE',
+        );
+      }
+      final token = tokenValue;
       final user = Map<String, dynamic>.from(data['user'] as Map);
       final session = Session(user: user, token: token);
       if (!session.isCustomer && !session.isDriver) {
