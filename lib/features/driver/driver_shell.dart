@@ -1,9 +1,10 @@
-import 'dart:convert';
-
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -84,24 +85,26 @@ class DriverJobView {
 
   bool get isCompleted {
     final value = status.toLowerCase();
-    return value.contains('complete') ||
-        value.contains('delivered') ||
-        value.contains('selesai');
+    return value == 'completed' || value.contains('selesai');
   }
 
   bool get isActive {
     final value = status.toLowerCase();
-    return value.contains('assigned') ||
-        value.contains('accepted') ||
-        value.contains('picking') ||
-        value.contains('picked') ||
-        value.contains('delivering') ||
-        value.contains('arrived') ||
+    return value == 'assigned' ||
+        value == 'accepted' ||
+        value == 'picking_up' ||
+        value == 'picked_up' ||
+        value == 'delivering' ||
+        value == 'arrived' ||
+        value == 'delivered' ||
         value.contains('aktif') ||
         value.contains('antar');
   }
 
-  bool get isNew => !isCompleted && !isActive;
+  bool get isNew {
+    final value = status.toLowerCase();
+    return value == 'available' || (value == 'assigned' && false);
+  }
 
   String get statusLabel {
     switch (status.toLowerCase()) {
@@ -120,6 +123,7 @@ class DriverJobView {
       case 'arrived':
         return 'Sampai Tujuan';
       case 'delivered':
+        return 'Bukti Pengantaran';
       case 'completed':
         return 'Selesai';
       default:
