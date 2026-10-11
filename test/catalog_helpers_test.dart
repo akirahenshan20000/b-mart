@@ -69,9 +69,6 @@ void main() {
 
     expect(find.byIcon(Icons.image_not_supported_outlined), findsOneWidget);
   });
-}
-
-void addServiceFlowTests() {
   testWidgets('welcome screen moves to service selection state', (tester) async {
     await tester.pumpWidget(const ProviderScope(
       child: MaterialApp(home: WelcomeSplashScreen()),
