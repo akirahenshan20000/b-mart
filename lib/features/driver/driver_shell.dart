@@ -1092,10 +1092,12 @@ class _DriverVehiclePageState extends ConsumerState<DriverVehiclePage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _ErrorCard(
-          message: 'Data kendaraan belum dapat dimuat. Pastikan endpoint /driver/profile sudah tersedia.',
-          onRetry: () async { setState(() => _future = _load()); },
-        );
+        if (snapshot.hasError) {
+          return _ErrorCard(
+            message: 'Data kendaraan belum dapat dimuat. Pastikan endpoint /driver/profile sudah tersedia.',
+            onRetry: () async { setState(() => _future = _load()); },
+          );
+        }
         final data = snapshot.data ?? const {};
         final fields = <String, String>{
           'Jenis kendaraan': readableDriverValue(data['vehicle_type'], fallback: 'Belum diatur'),
@@ -1149,23 +1151,27 @@ class _DriverBankAccountsPageState extends ConsumerState<DriverBankAccountsPage>
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _ErrorCard(
-          message: 'Rekening belum dapat dimuat. Pastikan endpoint /banks sudah tersedia.',
-          onRetry: () async { setState(() => _future = _load()); },
-        );
+        if (snapshot.hasError) {
+          return _ErrorCard(
+            message: 'Rekening belum dapat dimuat. Pastikan endpoint /banks sudah tersedia.',
+            onRetry: () async { setState(() => _future = _load()); },
+          );
+        }
         final items = snapshot.data ?? const [];
-        if (items.isEmpty) return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFF147D58)),
-              SizedBox(height: 12),
-              Text('Belum ada rekening pencairan.', style: TextStyle(fontWeight: FontWeight.w800)),
-              SizedBox(height: 6),
-              Text('Pengelolaan rekening tetap mengikuti proses PWA sampai endpoint simpan mobile digunakan.', textAlign: TextAlign.center),
-            ]),
-          ),
-        );
+        if (items.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.account_balance_outlined, size: 52, color: Color(0xFF147D58)),
+                SizedBox(height: 12),
+                Text('Belum ada rekening pencairan.', style: TextStyle(fontWeight: FontWeight.w800)),
+                SizedBox(height: 6),
+                Text('Pengelolaan rekening tetap mengikuti proses PWA sampai endpoint simpan mobile digunakan.', textAlign: TextAlign.center),
+              ]),
+            ),
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: items.length,
