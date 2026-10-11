@@ -102,9 +102,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
       if (rawItems.isEmpty) _rates = const [];
       _lastError = null;
     });
-    if (rawItems.isNotEmpty && _position == null) {
-      unawaited(_captureGps());
-    }
+    // Match PWA behavior: request GPS only after the member taps the location button.
   }
 
   Future<void> _reloadAll() async {
@@ -266,6 +264,35 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
     }
   }
 
+  Future<void> _refreshPlacedOrder() async {
+    final id = int.tryParse(_placedOrder?['id']?.toString() ?? '');
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID order dari server tidak tersedia untuk pemeriksaan status.')));
+      return;
+    }
+    try {
+      final response = await ref.read(apiClientProvider).get('/orders/$id');
+      final data = _checkoutMap(response);
+      if (data.isEmpty) throw StateError('Server tidak mengembalikan status order.');
+      final payment = data['payment'] is Map
+          ? Map<String, dynamic>.from(data['payment'] as Map)
+          : <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _placedOrder = data;
+        _placedPayment = payment;
+      });
+      final status = (payment['status'] ?? data['flow_state'] ?? data['status'] ?? 'belum tersedia').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status pembayaran dari server: $status')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Status pembayaran belum bisa diperbarui: ${error.toString().replaceFirst('Exception: ', '')}')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Checkout')),
@@ -284,6 +311,7 @@ class _CustomerCheckoutPageState extends ConsumerState<CustomerCheckoutPage> {
             order: _placedOrder!,
             payment: _placedPayment ?? const {},
             onContinuePayment: _continuePayment,
+            onRefreshStatus: _refreshPlacedOrder,
             onDone: () => Navigator.of(context).pop(true),
           );
         }
@@ -566,11 +594,13 @@ class _OrderCreatedView extends StatelessWidget {
     required this.order,
     required this.payment,
     required this.onContinuePayment,
+    required this.onRefreshStatus,
     required this.onDone,
   });
   final Map<String, dynamic> order;
   final Map<String, dynamic> payment;
   final VoidCallback onContinuePayment;
+  final VoidCallback onRefreshStatus;
   final VoidCallback onDone;
 
   @override
@@ -602,6 +632,12 @@ class _OrderCreatedView extends StatelessWidget {
               icon: const Icon(Icons.open_in_browser_rounded),
               label: const Text('Lanjut ke halaman pembayaran Bank Jatim'),
             )),
+          const SizedBox(height: 8),
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: onRefreshStatus,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Periksa status pembayaran'),
+          )),
           const SizedBox(height: 8),
           SizedBox(width: double.infinity, child: OutlinedButton(onPressed: onDone, child: const Text('Kembali ke belanja'))),
         ]),
