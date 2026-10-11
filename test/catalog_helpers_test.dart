@@ -34,10 +34,16 @@ void main() {
       expect(formatRupiah(null), 'Rp 0');
     });
 
-    test('handles empty or malformed API product responses without throwing', () {
+    test('accepts a valid empty catalog but rejects malformed API responses', () {
       expect(catalogProductsFromPayload({'ok': true, 'data': []}), isEmpty);
-      expect(catalogProductsFromPayload({'ok': true, 'data': null}), isEmpty);
-      expect(catalogProductsFromPayload(null), isEmpty);
+      expect(
+        () => catalogProductsFromPayload({'ok': true, 'data': null}),
+        throwsFormatException,
+      );
+      expect(
+        () => catalogProductsFromPayload(null),
+        throwsFormatException,
+      );
     });
 
     test('resolves root-relative production media paths', () {
