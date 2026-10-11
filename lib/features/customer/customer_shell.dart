@@ -5,6 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+extension _IterableFirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}
+
+const Map<String, List<String>> _probolinggoAreas = {
+  'Kademangan': ['Kademangan', 'Ketapang', 'Pilang', 'Pohsangit Kidul', 'Triwung Kidul', 'Triwung Lor'],
+  'Kanigaran': ['Curahgrinting', 'Kanigaran', 'Kebonsari Kulon', 'Kebonsari Wetan', 'Sukoharjo', 'Tisnonegaran'],
+  'Kedopok': ['Jrebeng Kulon', 'Jrebeng Lor', 'Jrebeng Wetan', 'Kareng Lor', 'Kedopok', 'Sumber Wetan'],
+  'Mayangan': ['Jati', 'Mayangan', 'Mangunharjo', 'Sukabumi', 'Wiroborang'],
+  'Wonoasih': ['Jrebeng Kidul', 'Kedung Asem', 'Kedung Galeng', 'Pakistaji', 'Sumber Taman', 'Wonoasih'],
+};
+
 import '../../core/auth/auth_controller.dart';
 import '../account/account_profile_edit_page.dart';
 
@@ -1563,6 +1575,46 @@ class CustomerAddressesPage extends ConsumerStatefulWidget {
 }
 
 class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
+  Future<void> _editAddress([Map<String, dynamic>? initial]) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _AddressEditorDialog(initialAddress: initial),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/addresses/save', result);
+      if (mounted) {
+        setState(() => _future = _load());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alamat berhasil disimpan.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alamat gagal disimpan: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
+  Future<void> _deleteAddress(Map<String, dynamic> address) async {
+    final id = int.tryParse(address['id']?.toString() ?? '');
+    if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus alamat?'),
+        content: Text('Alamat "${address['label'] ?? 'Alamat'}" akan dihapus dari akun.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Hapus')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).post('/addresses/delete/$id', const <String, dynamic>{});
+      if (mounted) setState(() => _future = _load());
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alamat gagal dihapus: ${e.toString().replaceFirst('Exception: ', '')}')));
+    }
+  }
+
   late Future<List<dynamic>> _future;
 
   @override
@@ -1626,12 +1678,188 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
               ]),
               subtitle: Text([name, phone, line, area].where((v) => v.isNotEmpty).join('\n')),
               isThreeLine: true,
+              trailing: PopupMenuButton<String>(
+                onSelected: (choice) {
+                  if (choice == 'edit') _editAddress(address);
+                  if (choice == 'delete') _deleteAddress(address);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit alamat')),
+                  PopupMenuItem(value: 'delete', child: Text('Hapus alamat')),
+                ],
+              ),
             ));
           },
         );
       },
     ),
   );
+}
+
+
+class _AddressEditorDialog extends StatefulWidget {
+  const _AddressEditorDialog({this.initialAddress});
+  final Map<String, dynamic>? initialAddress;
+
+  @override
+  State<_AddressEditorDialog> createState() => _AddressEditorDialogState();
+}
+
+class _AddressEditorDialogState extends State<_AddressEditorDialog> {
+  late final TextEditingController _label;
+  late final TextEditingController _name;
+  late final TextEditingController _phone;
+  late final TextEditingController _address;
+  late final TextEditingController _postal;
+  String? _district;
+  String? _village;
+  bool _isDefault = false;
+  bool _capturing = false;
+  double? _latitude;
+  double? _longitude;
+  double? _accuracy;
+
+  @override
+  void initState() {
+    super.initState();
+    final a = widget.initialAddress ?? const <String, dynamic>{};
+    _label = TextEditingController(text: a['label']?.toString() ?? 'Rumah');
+    _name = TextEditingController(text: a['recipient_name']?.toString() ?? '');
+    _phone = TextEditingController(text: a['phone']?.toString() ?? '');
+    _address = TextEditingController(text: a['address_line']?.toString() ?? '');
+    _postal = TextEditingController(text: a['postal_code']?.toString() ?? '');
+    final district = a['district']?.toString();
+    _district = _probolinggoAreas.containsKey(district) ? district : null;
+    final village = a['village']?.toString();
+    _village = (_district != null && _probolinggoAreas[_district]!.contains(village)) ? village : null;
+    _isDefault = a['is_default'] == true || a['is_default']?.toString() == '1';
+    _latitude = double.tryParse(a['latitude']?.toString() ?? '');
+    _longitude = double.tryParse(a['longitude']?.toString() ?? '');
+    _accuracy = double.tryParse(a['accuracy_m']?.toString() ?? '');
+  }
+
+  Future<void> _captureGps() async {
+    setState(() => _capturing = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) throw Exception('Aktifkan lokasi perangkat.');
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        throw Exception('Izin lokasi ditolak. Izinkan lokasi presisi untuk menyimpan koordinat.');
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 18)),
+      );
+      if (!mounted) return;
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+        _accuracy = position.accuracy;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('GPS diperoleh dengan akurasi ${position.accuracy.toStringAsFixed(0)} m.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    } finally {
+      if (mounted) setState(() => _capturing = false);
+    }
+  }
+
+  void _save() {
+    final a = widget.initialAddress ?? const <String, dynamic>{};
+    if (_label.text.trim().length < 2 || _name.text.trim().length < 2 ||
+        _phone.text.replaceAll(RegExp(r'\D'), '').length < 8 ||
+        _address.text.trim().length < 8 || _district == null || _village == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lengkapi label, penerima, nomor HP, alamat, kecamatan, dan kelurahan.')));
+      return;
+    }
+    Navigator.of(context).pop(<String, dynamic>{
+      'id': a['id'] ?? 0,
+      'label': _label.text.trim(),
+      'recipient_name': _name.text.trim(),
+      'phone': _phone.text.trim(),
+      'address_line': _address.text.trim(),
+      'province': 'Jawa Timur',
+      'city': 'Kota Probolinggo',
+      'district': _district,
+      'village': _village,
+      'postal_code': _postal.text.trim(),
+      'is_default': _isDefault ? 1 : 0,
+      'latitude': _latitude,
+      'longitude': _longitude,
+      'accuracy_m': _accuracy,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final villages = _district == null ? const <String>[] : _probolinggoAreas[_district]!;
+    return AlertDialog(
+      title: Text(widget.initialAddress == null ? 'Tambah alamat' : 'Edit alamat'),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: _label, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Label alamat')),
+              const SizedBox(height: 10),
+              TextField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nama penerima')),
+              const SizedBox(height: 10),
+              TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Nomor HP penerima')),
+              const SizedBox(height: 10),
+              TextField(controller: _address, minLines: 2, maxLines: 3, decoration: const InputDecoration(labelText: 'Alamat lengkap')),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: _district,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Kecamatan'),
+                items: _probolinggoAreas.keys.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                onChanged: (value) => setState(() { _district = value; _village = null; }),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: villages.contains(_village) ? _village : null,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Kelurahan'),
+                items: villages.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                onChanged: (value) => setState(() => _village = value),
+              ),
+              const SizedBox(height: 10),
+              TextField(controller: _postal, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kode pos (opsional)')),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _capturing ? null : _captureGps,
+                icon: _capturing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location_rounded),
+                label: Text(_latitude == null || _longitude == null ? 'Ambil lokasi GPS' : 'GPS ${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}'),
+              ),
+              if (_accuracy != null) Text('Akurasi ${_accuracy!.toStringAsFixed(0)} m', style: const TextStyle(color: Colors.black54)),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _isDefault,
+                onChanged: (value) => setState(() => _isDefault = value ?? false),
+                title: const Text('Jadikan alamat utama'),
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Batal')),
+        FilledButton(onPressed: _save, child: const Text('Simpan alamat')),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _label.dispose();
+    _name.dispose();
+    _phone.dispose();
+    _address.dispose();
+    _postal.dispose();
+    super.dispose();
+  }
 }
 
 class CustomerBankAccountsPage extends ConsumerStatefulWidget {
