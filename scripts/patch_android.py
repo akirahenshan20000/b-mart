@@ -16,7 +16,6 @@ permissions = [
     'android.permission.FOREGROUND_SERVICE',
     'android.permission.FOREGROUND_SERVICE_LOCATION',
     'android.permission.CAMERA',
-    'android.permission.READ_MEDIA_IMAGES',
 ]
 missing = [
     f'    <uses-permission android:name="{permission}" />'
