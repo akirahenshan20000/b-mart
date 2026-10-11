@@ -907,7 +907,6 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     final nextStatus = _nextStatus;
     final towardCustomer = const ['picked_up', 'delivering', 'arrived', 'delivered'].contains(_job.status.toLowerCase());
     final destinationLabel = towardCustomer ? 'Tujuan pelanggan' : 'Titik pickup merchant';
-    final destinationAddress = towardCustomer ? _job.dropoffAddress : _job.pickupAddress;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F4F5),
@@ -1710,11 +1709,6 @@ class _DriverMapPageState extends State<DriverMapPage> {
       ],
     );
   }
-}
-
-double _formatRouteDistance(double? meters) {
-  if (meters == null) return 0;
-  return meters / 1000;
 }
 
 String _routeDistanceLabel(double? meters) {
