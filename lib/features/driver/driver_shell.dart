@@ -1302,14 +1302,12 @@ class _DriverMapPageState extends State<DriverMapPage> {
   LatLng? _destinationFor(DriverJobView? job) {
     if (job == null || job.isCompleted) return null;
     switch (job.status.toLowerCase()) {
-      case 'available':
       case 'assigned':
       case 'accepted':
       case 'picking_up':
         return job.pickup;
       case 'picked_up':
       case 'delivering':
-      case 'arrived':
         return job.dropoff;
       default:
         return null;
@@ -1349,6 +1347,13 @@ class _DriverMapPageState extends State<DriverMapPage> {
     final destination = _activeDestination;
     if (destination == null) {
       if (mounted) {
+        final status = widget.job?.status.toLowerCase() ?? '';
+        final needsRoute = const ['assigned', 'accepted', 'picking_up', 'picked_up', 'delivering'].contains(status);
+        final pickupAddress = widget.job?.pickupAddress.trim() ?? '';
+        final dropoffAddress = widget.job?.dropoffAddress.trim() ?? '';
+        final addressAvailable = const ['assigned', 'accepted', 'picking_up'].contains(status)
+            ? pickupAddress.isNotEmpty && pickupAddress != '-'
+            : dropoffAddress.isNotEmpty && dropoffAddress != '-';
         setState(() {
           _routePoints = const [];
           _routeDistanceMeters = null;
@@ -1356,7 +1361,11 @@ class _DriverMapPageState extends State<DriverMapPage> {
           _routeLoading = false;
           _routeError = widget.job == null
               ? 'Pilih order untuk melihat rute jalan.'
-              : 'Rute tidak diperlukan untuk status order ini.';
+              : needsRoute && addressAvailable
+                  ? 'Alamat tujuan tersedia, tetapi koordinat tujuan belum dikirim oleh server.'
+                  : needsRoute
+                      ? 'Koordinat tujuan belum tersedia pada order ini.'
+                      : 'Rute jalan tidak aktif pada status order ini.';
         });
       }
       return;
@@ -1498,7 +1507,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
               _mapReady = true;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                if (hasValidGps && _followGps) _mapController.move(_driverPoint, _cameraZoom);
+                if (hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
                 _maybeLoadRoute(force: true);
               });
             },
