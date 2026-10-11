@@ -71,4 +71,26 @@ void main() {
   });
 }
 
-void serviceFlowTests() {}
+void addServiceFlowTests() {
+  testWidgets('welcome screen moves to service selection state', (tester) async {
+    await tester.pumpWidget(const ProviderScope(
+      child: MaterialApp(home: WelcomeSplashScreen()),
+    ));
+    await tester.tap(find.text('Mulai'));
+    await tester.pump();
+
+    final context = tester.element(find.byType(WelcomeSplashScreen));
+    expect(ProviderScope.containerOf(context).read(selectedServiceProvider), 'choose');
+  });
+
+  testWidgets('service selection chooses the driver role', (tester) async {
+    await tester.pumpWidget(const ProviderScope(
+      child: MaterialApp(home: ServiceSelectionScreen()),
+    ));
+    await tester.tap(find.text('Driver').first);
+    await tester.pump();
+
+    final context = tester.element(find.byType(ServiceSelectionScreen));
+    expect(ProviderScope.containerOf(context).read(selectedServiceProvider), 'driver');
+  });
+}
