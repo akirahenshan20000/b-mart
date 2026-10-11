@@ -158,6 +158,7 @@ def main() -> int:
         ("/api/v1/banks/save", "bank account save"),
         ("/api/v1/banks/delete/1", "bank account delete"),
         ("/api/v1/driver/base-location", "driver base location"),
+        ("/api/v1/driver/jobs/1/status", "driver job status command"),
     )
     for path, label in protected_post:
         status, content_type, _ = request(path, method="POST", payload={})
