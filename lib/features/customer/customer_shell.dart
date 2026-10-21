@@ -1322,6 +1322,7 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
     return Column(children: [
       SizedBox(
         width: double.infinity,
+        height: 190,
         child: PageView.builder(
           controller: _controller,
           itemCount: widget.slides.length,
