@@ -1337,7 +1337,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
   LatLng? _destinationFor(DriverJobView? job, LocationSnapshot? snapshot) {
     if (job == null || job.isCompleted) return null;
     if ((snapshot == null || (snapshot.mocked && !kDebugMode)) &&
-        job.pickup != null && job.dropoff != null) return job.dropoff;
+        job.pickup != null && job.dropoff != null) {
+      return job.dropoff;
+    }
     switch (driverNavigationLegForStatus(job.status)) {
       case 'pickup':
         return job.pickup;
@@ -1369,10 +1371,12 @@ class _DriverMapPageState extends State<DriverMapPage> {
         : LatLng(position.latitude, position.longitude);
     final destination = position == null ? widget.job?.dropoff : _activeDestination;
     if (origin == null) {
-      if (mounted) setState(() {
-        _routeLoading = false;
-        _routeError = 'Aktifkan lokasi perangkat untuk melihat rute dari posisi Anda.';
-      });
+      if (mounted) {
+        setState(() {
+          _routeLoading = false;
+          _routeError = 'Aktifkan lokasi perangkat untuk melihat rute dari posisi Anda.';
+        });
+      }
       return;
     }
 
