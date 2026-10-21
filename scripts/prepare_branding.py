@@ -60,19 +60,25 @@ def main() -> int:
         print(f"ERROR: unable to fetch canonical BersolekMart logo from {LOGO_URL}: {exc}", file=sys.stderr)
         return 1
 
-    source.resize((512, 512), Image.Resampling.LANCZOS).save(
-        FULL_LOGO, format="PNG", optimize=True
-    )
+    bounds = source.getchannel("A").getbbox()
+    if bounds is None:
+        raise RuntimeError("Canonical logo has no visible pixels")
+    logo = source.crop(bounds)
 
-    # Android adaptive icons should use the illustration, not a tiny wordmark.
-    width, height = source.size
-    crop = source.crop((
-        round(width * 0.05), round(height * 0.158),
-        round(width * 0.95), round(height * 0.708),
-    ))
-    mark = contain(crop, 300, 190)
+    # Trim transparent canvas before fitting the launcher icon. The old asset
+    # included large margins and Android scaled the logo down again.
+    legacy_mark = contain(logo, 440, 440)
+    legacy = Image.new("RGBA", (512, 512), (255, 255, 255, 255))
+    legacy.alpha_composite(
+        legacy_mark, ((512 - legacy_mark.width) // 2, (512 - legacy_mark.height) // 2)
+    )
+    legacy.save(FULL_LOGO, format="PNG", optimize=True)
+
+    adaptive_mark = contain(logo, 400, 400)
     adaptive = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
-    adaptive.alpha_composite(mark, ((512 - mark.width) // 2, (512 - mark.height) // 2))
+    adaptive.alpha_composite(
+        adaptive_mark, ((512 - adaptive_mark.width) // 2, (512 - adaptive_mark.height) // 2)
+    )
     adaptive.save(ADAPTIVE_LOGO, format="PNG", optimize=True)
 
     for path in (FULL_LOGO, ADAPTIVE_LOGO):
