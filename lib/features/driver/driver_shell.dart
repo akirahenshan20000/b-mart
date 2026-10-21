@@ -1696,19 +1696,21 @@ class _DriverMapPageState extends State<DriverMapPage> {
                   constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .48),
                   child: SingleChildScrollView(
                     child: _MapSheet(
-                  job: widget.job,
-                  gpsReady: hasValidGps,
-                  simulatedGps: simulatedGps,
-                  previewOnly: _previewOnly,
-                  routeLoading: _routeLoading,
-                  routeError: _routeError,
-                  routeDistanceMeters: _routeDistanceMeters,
-                  routeDurationSeconds: _routeDurationSeconds,
-                  routeReady: _routePoints.length >= 2,
-                  onFollowGps: _centerOnDriver,
-                  onNavigate: widget.job == null || destination == null
-                      ? null
-                      : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                      job: widget.job,
+                      gpsReady: hasValidGps,
+                      simulatedGps: simulatedGps,
+                      previewOnly: _previewOnly,
+                      routeLoading: _routeLoading,
+                      routeError: _routeError,
+                      routeDistanceMeters: _routeDistanceMeters,
+                      routeDurationSeconds: _routeDurationSeconds,
+                      routeReady: _routePoints.length >= 2,
+                      onFollowGps: _centerOnDriver,
+                      onNavigate: widget.job == null || destination == null
+                          ? null
+                          : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                    ),
+                  ),
                 ),
               ),
             ),
