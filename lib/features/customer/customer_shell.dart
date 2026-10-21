@@ -160,15 +160,17 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFFD20A2E),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        toolbarHeight: 64,
         elevation: 0,
         flexibleSpace: const DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF710414), Color(0xFFC8102E), Color(0xFFFF253B)],
+              colors: [Color(0xFF19070C), Color(0xFF8D001D), Color(0xFFE60025)],
             ),
           ),
         ),
@@ -182,7 +184,14 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
               errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 28),
             ),
             const SizedBox(width: 10),
-            const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
+                Text('Marketplace lokal · Kota Probolinggo', style: TextStyle(fontSize: 10, color: Colors.white70)),
+              ],
+            ),
           ],
         ),
       ),
@@ -1329,6 +1338,9 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
   Widget build(BuildContext context) {
     if (widget.slides.isEmpty) return const SizedBox.shrink();
     final safeIndex = _index.clamp(0, widget.slides.length - 1);
+    final firstSlide = Map<String, dynamic>.from(widget.slides.first as Map);
+    final availableWidth = MediaQuery.sizeOf(context).width - 28;
+    final carouselHeight = (availableWidth / _ratio(firstSlide)).clamp(145.0, 210.0).toDouble();
     return Column(children: [
       SizedBox(
         width: double.infinity,
