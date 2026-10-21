@@ -18,6 +18,7 @@ import '../../core/network/api_client.dart';
 import '../account/account_profile_edit_page.dart';
 import '../account/member_data_pages.dart';
 import 'driver_base_location_page.dart';
+import '../../shared/widgets/brand_bottom_navigation.dart';
 
 /// Converts structured API fields to human-readable text for driver screens.
 String readableDriverValue(dynamic value, {String fallback = '-'}) {
@@ -469,38 +470,19 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: _mapFullscreen ? null : NavigationBar(
+      bottomNavigationBar: _mapFullscreen ? null : BrandBottomNavigation(
+        dark: true,
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() {
+        onSelected: (value) => setState(() {
           _mapFullscreen = false;
           _index = value;
         }),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Beranda',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.local_shipping_outlined),
-            selectedIcon: Icon(Icons.local_shipping),
-            label: 'Order',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: 'Peta',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Riwayat',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Akun',
-          ),
+        items: const [
+          BrandNavItem('Beranda', Icons.home_outlined, Icons.home_rounded),
+          BrandNavItem('Order', Icons.local_shipping_outlined, Icons.local_shipping_rounded),
+          BrandNavItem('Peta', Icons.map_outlined, Icons.map_rounded),
+          BrandNavItem('Riwayat', Icons.history_outlined, Icons.history_rounded),
+          BrandNavItem('Akun', Icons.person_outline, Icons.person_rounded),
         ],
       ),
     );
