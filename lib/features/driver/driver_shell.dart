@@ -209,14 +209,23 @@ class _DriverShellState extends ConsumerState<DriverShell> {
   }
 
   Future<void> _restoreAvailability() async {
+    var serverStatus = '';
     try {
       final payload = await ref.read(apiClientProvider).get('/driver/profile');
       final profile = payload['data'];
-      final status = profile is Map ? (profile['status'] ?? '').toString().toLowerCase() : '';
-      if (!['available', 'assigned', 'delivering'].contains(status)) return;
+      serverStatus = profile is Map ? (profile['status'] ?? '').toString().toLowerCase() : '';
+      if (!['available', 'assigned', 'delivering'].contains(serverStatus)) return;
       await _guard.start();
       if (mounted) setState(() => _online = true);
     } catch (_) {
+      // A driver with no active task must not remain available without GPS.
+      if (serverStatus == 'available') {
+        try {
+          await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
+        } catch (_) {
+          // Keep the failure visible; do not claim server availability changed.
+        }
+      }
       if (!mounted) return;
       setState(() {
         _online = false;
