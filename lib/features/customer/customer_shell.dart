@@ -11,6 +11,7 @@ import '../../core/network/api_client.dart';
 import '../account/account_profile_edit_page.dart';
 import '../account/member_data_pages.dart';
 import 'checkout_page.dart';
+import '../../shared/widgets/brand_bottom_navigation.dart';
 
 /// Converts API values to readable UI text instead of exposing Map/List dumps.
 String readableApiValue(dynamic value, {String fallback = '-'}) {
@@ -159,9 +160,20 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFFD20A2E),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        toolbarHeight: 64,
         elevation: 0,
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF19070C), Color(0xFF8D001D), Color(0xFFE60025)],
+            ),
+          ),
+        ),
         title: Row(
           children: [
             Image.asset(
@@ -172,23 +184,30 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
               errorBuilder: (_, _, _) => const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 28),
             ),
             const SizedBox(width: 10),
-            const Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('BersolekMart', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3)),
+                Text('Marketplace lokal · Kota Probolinggo', style: TextStyle(fontSize: 10, color: Colors.white70)),
+              ],
+            ),
           ],
         ),
       ),
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: BrandBottomNavigation(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() {
+        onSelected: (value) => setState(() {
           if (value == 2) _cartRevision++;
           _index = value;
         }),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Belanja'),
-          NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Kategori'),
-          NavigationDestination(icon: Icon(Icons.shopping_basket_outlined), selectedIcon: Icon(Icons.shopping_basket), label: 'Keranjang'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Pesanan'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Akun'),
+        items: const [
+          BrandNavItem('Beranda', Icons.home_outlined, Icons.home_rounded),
+          BrandNavItem('Kategori', Icons.grid_view_outlined, Icons.grid_view_rounded),
+          BrandNavItem('Keranjang', Icons.shopping_bag_outlined, Icons.shopping_bag_rounded),
+          BrandNavItem('Pesanan', Icons.receipt_long_outlined, Icons.receipt_long_rounded),
+          BrandNavItem('Akun', Icons.person_outline, Icons.person_rounded),
         ],
       ),
     );
@@ -1319,9 +1338,13 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
   Widget build(BuildContext context) {
     if (widget.slides.isEmpty) return const SizedBox.shrink();
     final safeIndex = _index.clamp(0, widget.slides.length - 1);
+    final firstSlide = Map<String, dynamic>.from(widget.slides.first as Map);
+    final availableWidth = MediaQuery.sizeOf(context).width - 28;
+    final carouselHeight = (availableWidth / _ratio(firstSlide)).clamp(145.0, 210.0).toDouble();
     return Column(children: [
       SizedBox(
         width: double.infinity,
+        height: 190,
         child: PageView.builder(
           controller: _controller,
           itemCount: widget.slides.length,
