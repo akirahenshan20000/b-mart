@@ -1496,7 +1496,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   void _centerOnDriver() {
     final snapshot = widget.snapshot;
-    if (!_hasUsableGps) {
+    if (snapshot == null || !_hasUsableGps) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lokasi perangkat belum tersedia. Aktifkan GPS, lalu coba lagi.')),
       );
@@ -1539,7 +1539,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
               _mapReady = true;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                if (hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
+                if (snapshot != null && hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
                 _maybeLoadRoute(force: true);
               });
             },
@@ -1577,7 +1577,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
             ],
             MarkerLayer(
               markers: [
-                if (hasValidGps)
+                if (snapshot != null && hasValidGps)
                   Marker(
                     point: LatLng(snapshot.position.latitude, snapshot.position.longitude),
                     width: 54,
@@ -1719,6 +1719,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 child: _FullscreenRouteCard(
                   job: widget.job!,
+                  previewOnly: _previewOnly,
                   routeDistanceMeters: _routeDistanceMeters,
                   routeDurationSeconds: _routeDurationSeconds,
                   routeReady: _routePoints.length >= 2,
@@ -1780,6 +1781,7 @@ class _MapActionButton extends StatelessWidget {
 class _FullscreenRouteCard extends StatelessWidget {
   const _FullscreenRouteCard({
     required this.job,
+    required this.previewOnly,
     required this.routeDistanceMeters,
     required this.routeDurationSeconds,
     required this.routeReady,
@@ -1788,6 +1790,7 @@ class _FullscreenRouteCard extends StatelessWidget {
   });
 
   final DriverJobView job;
+  final bool previewOnly;
   final double? routeDistanceMeters;
   final double? routeDurationSeconds;
   final bool routeReady;
