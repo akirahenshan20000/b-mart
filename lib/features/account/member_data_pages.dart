@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 
 const _areas = <String, List<String>>{
   'Kademangan': ['Kademangan', 'Ketapang', 'Pilang', 'Pohsangit Kidul', 'Triwung Kidul', 'Triwung Lor'],
