@@ -66,10 +66,10 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
     try {
       await ref.read(apiClientProvider).post('/addresses/delete/$id', <String, dynamic>{});
       if (mounted) setState(() => _future = _load());
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Alamat gagal dihapus. Coba lagi.')),
+          SnackBar(content: Text(error is ApiException ? apiErrorMessage(error) : 'Alamat gagal dihapus. Coba lagi.')),
         );
       }
     }
