@@ -70,6 +70,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Hapus produk'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
     expect(api.removed, isTrue);
     expect(find.text('Keranjang masih kosong'), findsOneWidget);
