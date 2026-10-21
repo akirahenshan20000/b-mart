@@ -1695,6 +1695,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
                 child: _MapSheet(
                   job: widget.job,
                   gpsReady: hasValidGps,
+                  simulatedGps: simulatedGps,
+                  previewOnly: _previewOnly,
                   routeLoading: _routeLoading,
                   routeError: _routeError,
                   routeDistanceMeters: _routeDistanceMeters,
@@ -1841,7 +1843,7 @@ class _FullscreenRouteCard extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(child: Text(
                 routeReady
-                    ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                    ? '${previewOnly ? 'Pratinjau merchant → pelanggan · ' : ''}${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
                     : 'Jarak dan waktu tersedia saat rute jalan berhasil dimuat',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
               )),
@@ -2747,7 +2749,8 @@ class _MapSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Expanded(child: Text(
-                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Menunggu GPS valid',
+                  simulatedGps ? 'Lokasi simulator · tidak dikirim ke server' :
+                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Lokasi perangkat belum tersedia',
                   style: const TextStyle(color: Colors.black54, fontSize: 12),
                 )),
               ],
