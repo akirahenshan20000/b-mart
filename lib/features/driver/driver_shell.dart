@@ -1692,7 +1692,10 @@ class _DriverMapPageState extends State<DriverMapPage> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-                child: _MapSheet(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .48),
+                  child: SingleChildScrollView(
+                    child: _MapSheet(
                   job: widget.job,
                   gpsReady: hasValidGps,
                   simulatedGps: simulatedGps,
