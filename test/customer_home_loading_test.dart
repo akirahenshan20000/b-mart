@@ -75,6 +75,33 @@ void main() {
     },
   );
   testWidgets(
+    'CMS banners have a bounded viewport inside the member home list',
+    (tester) async {
+      final api = _SlowOptionalApi();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiClientProvider.overrideWith((ref) => api)],
+          child: const MaterialApp(home: Scaffold(body: CustomerHome())),
+        ),
+      );
+      api.cms.complete({
+        'ok': true,
+        'data': {
+          'hero_slides': [
+            {'title': 'Produk lokal', 'image_path': ''},
+            {'title': 'UMKM Probolinggo', 'image_path': ''},
+          ],
+        },
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+      expect(find.byType(PageView), findsOneWidget);
+      expect(tester.getSize(find.byType(PageView)).height, 190);
+    },
+  );
+
+  testWidgets(
     'member home keeps search and product skeleton visible while product API is pending',
     (tester) async {
       final api = _SlowOptionalApi(holdProducts: true);
