@@ -1090,7 +1090,7 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _load());
+    setState(() { _future = _load(); });
     await _future;
   }
 
@@ -1126,7 +1126,7 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Keranjang belum dapat dimuat. Pastikan API cart sudah dipasang di server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final data = snapshot.data ?? const <String, dynamic>{};
@@ -1463,7 +1463,7 @@ class _CustomerCategoriesState extends ConsumerState<CustomerCategories> {
     future: _future,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return _ErrorPanel(message: 'Kategori belum dapat dimuat.', onRetry: () => setState(() => _future = _load()));
+      if (snapshot.hasError) return _ErrorPanel(message: 'Kategori belum dapat dimuat.', onRetry: () => setState(() { _future = _load(); }));
       final items = snapshot.data ?? const [];
       if (items.isEmpty) return const Center(child: Text('Belum ada kategori aktif.'));
       return ListView(
@@ -1521,7 +1521,7 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
     future: _future,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return _ErrorPanel(message: 'Pesanan belum dapat dimuat.', onRetry: () => setState(() => _future = _load()));
+      if (snapshot.hasError) return _ErrorPanel(message: 'Pesanan belum dapat dimuat.', onRetry: () => setState(() { _future = _load(); }));
       final items = snapshot.data ?? const [];
       if (items.isEmpty) {
         return ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [
@@ -1780,7 +1780,7 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Alamat belum dapat dimuat. Pastikan endpoint API /addresses sudah tersedia di server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final addresses = snapshot.data ?? const [];
@@ -1859,7 +1859,7 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Rekening belum dapat dimuat. Endpoint API /banks belum terverifikasi pada server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final accounts = snapshot.data ?? const [];
