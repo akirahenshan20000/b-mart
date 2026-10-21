@@ -15,10 +15,13 @@ class _MemberApi extends ApiClient {
 
   @override
   Future<dynamic> get(String path, {Map<String, String>? query, bool auth = true}) async {
-    if (path == '/orders') return {'ok': true, 'data': [
-      {'id': 42, 'code': 'BM-42', 'total': 15000, 'status': 'processing'}
-    ]};
-    if (path == '/orders/42') return {'ok': true, 'data': {
+    if (path == '/orders') {
+      return {'ok': true, 'data': [
+        {'id': 42, 'code': 'BM-42', 'total': 15000, 'status': 'processing'}
+      ]};
+    }
+    if (path == '/orders/42') {
+      return {'ok': true, 'data': {
       'id': 42, 'code': 'BM-42', 'status': 'processing',
       'subtotal': 12000, 'shipping_total': 3000, 'total': 15000,
       'shipping_method': 'SOPIR', 'payment_method': 'qris',
@@ -26,7 +29,9 @@ class _MemberApi extends ApiClient {
         {'product_name_snapshot': 'Kopi Lokal', 'qty': 2, 'unit_price': 6000, 'line_total': 12000}
       ]
     }};
-    if (path == '/cart') return {'ok': true, 'data': {
+    }
+    if (path == '/cart') {
+      return {'ok': true, 'data': {
       'items': removed ? [] : [
         {'id': '7', 'line_key': '7', 'qty': 1, 'name': 'Kopi Lokal',
          'unit_price': 6000, 'store_name': 'UMKM', 'image': ''}
@@ -34,6 +39,7 @@ class _MemberApi extends ApiClient {
       'count': removed ? 0 : 1,
       'subtotal': removed ? 0 : 6000,
     }};
+    }
     throw StateError('Unexpected API request: $path');
   }
 
