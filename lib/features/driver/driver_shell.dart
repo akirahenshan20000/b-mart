@@ -1258,8 +1258,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
   bool get _hasUsableGps => widget.snapshot != null &&
       (!widget.snapshot!.mocked || kDebugMode);
 
-  bool get _previewOnly => !_hasUsableGps &&
-      widget.job?.pickup != null && widget.job?.dropoff != null;
+  bool get _previewOnly => !_hasUsableGps && widget.job != null &&
+      !widget.job!.isCompleted && widget.job?.pickup != null && widget.job?.dropoff != null;
 
   LatLng? get _routeDestination => _previewOnly ? widget.job?.dropoff : _activeDestination;
 
