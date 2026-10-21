@@ -1344,7 +1344,7 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
     return Column(children: [
       SizedBox(
         width: double.infinity,
-        height: 190,
+        height: carouselHeight,
         child: PageView.builder(
           controller: _controller,
           itemCount: widget.slides.length,
@@ -1354,14 +1354,14 @@ class _CmsHeroCarouselState extends State<_CmsHeroCarousel> {
             final image = (slide['image_path'] ?? '').toString();
             final ratio = _ratio(slide);
             final wideImage = ratio >= 1.9;
-            final height = wideImage ? 175.0 : 190.0;
+            final height = carouselHeight;
             final target = (slide['target_url'] ?? '').toString();
             if (wideImage) {
               return Material(
                 color: const Color(0xFFF6EDEF), borderRadius: BorderRadius.circular(18), clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: target.trim().isEmpty ? null : () => _openTarget(target),
-                  child: AspectRatio(aspectRatio: ratio.clamp(1.45, 2.7).toDouble(), child: _bannerImage(image, fit: BoxFit.contain, height: height)),
+                  child: _bannerImage(image, fit: BoxFit.cover, height: height),
                 ),
               );
             }

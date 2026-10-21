@@ -1258,8 +1258,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
   bool get _hasUsableGps => widget.snapshot != null &&
       (!widget.snapshot!.mocked || kDebugMode);
 
-  bool get _previewOnly => !_hasUsableGps &&
-      widget.job?.pickup != null && widget.job?.dropoff != null;
+  bool get _previewOnly => !_hasUsableGps && widget.job != null &&
+      !widget.job!.isCompleted && widget.job?.pickup != null && widget.job?.dropoff != null;
 
   LatLng? get _routeDestination => _previewOnly ? widget.job?.dropoff : _activeDestination;
 
@@ -1337,7 +1337,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
   LatLng? _destinationFor(DriverJobView? job, LocationSnapshot? snapshot) {
     if (job == null || job.isCompleted) return null;
     if ((snapshot == null || (snapshot.mocked && !kDebugMode)) &&
-        job.pickup != null && job.dropoff != null) return job.dropoff;
+        job.pickup != null && job.dropoff != null) {
+      return job.dropoff;
+    }
     switch (driverNavigationLegForStatus(job.status)) {
       case 'pickup':
         return job.pickup;
@@ -1369,10 +1371,12 @@ class _DriverMapPageState extends State<DriverMapPage> {
         : LatLng(position.latitude, position.longitude);
     final destination = position == null ? widget.job?.dropoff : _activeDestination;
     if (origin == null) {
-      if (mounted) setState(() {
-        _routeLoading = false;
-        _routeError = 'Aktifkan lokasi perangkat untuk melihat rute dari posisi Anda.';
-      });
+      if (mounted) {
+        setState(() {
+          _routeLoading = false;
+          _routeError = 'Aktifkan lokasi perangkat untuk melihat rute dari posisi Anda.';
+        });
+      }
       return;
     }
 
@@ -1496,7 +1500,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   void _centerOnDriver() {
     final snapshot = widget.snapshot;
-    if (!_hasUsableGps) {
+    if (snapshot == null || !_hasUsableGps) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lokasi perangkat belum tersedia. Aktifkan GPS, lalu coba lagi.')),
       );
@@ -1539,7 +1543,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
               _mapReady = true;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                if (hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
+                if (snapshot != null && hasValidGps && _followGps) _mapController.move(LatLng(snapshot.position.latitude, snapshot.position.longitude), _cameraZoom);
                 _maybeLoadRoute(force: true);
               });
             },
@@ -1577,7 +1581,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
             ],
             MarkerLayer(
               markers: [
-                if (hasValidGps)
+                if (snapshot != null && hasValidGps)
                   Marker(
                     point: LatLng(snapshot.position.latitude, snapshot.position.longitude),
                     width: 54,
@@ -1692,18 +1696,25 @@ class _DriverMapPageState extends State<DriverMapPage> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-                child: _MapSheet(
-                  job: widget.job,
-                  gpsReady: hasValidGps,
-                  routeLoading: _routeLoading,
-                  routeError: _routeError,
-                  routeDistanceMeters: _routeDistanceMeters,
-                  routeDurationSeconds: _routeDurationSeconds,
-                  routeReady: _routePoints.length >= 2,
-                  onFollowGps: _centerOnDriver,
-                  onNavigate: widget.job == null || destination == null
-                      ? null
-                      : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .48),
+                  child: SingleChildScrollView(
+                    child: _MapSheet(
+                      job: widget.job,
+                      gpsReady: hasValidGps,
+                      simulatedGps: simulatedGps,
+                      previewOnly: _previewOnly,
+                      routeLoading: _routeLoading,
+                      routeError: _routeError,
+                      routeDistanceMeters: _routeDistanceMeters,
+                      routeDurationSeconds: _routeDurationSeconds,
+                      routeReady: _routePoints.length >= 2,
+                      onFollowGps: _centerOnDriver,
+                      onNavigate: widget.job == null || destination == null
+                          ? null
+                          : () => _openRoadNavigation(context, widget.job!, snapshot: widget.snapshot),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1717,6 +1728,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 child: _FullscreenRouteCard(
                   job: widget.job!,
+                  previewOnly: _previewOnly,
                   routeDistanceMeters: _routeDistanceMeters,
                   routeDurationSeconds: _routeDurationSeconds,
                   routeReady: _routePoints.length >= 2,
@@ -1778,6 +1790,7 @@ class _MapActionButton extends StatelessWidget {
 class _FullscreenRouteCard extends StatelessWidget {
   const _FullscreenRouteCard({
     required this.job,
+    required this.previewOnly,
     required this.routeDistanceMeters,
     required this.routeDurationSeconds,
     required this.routeReady,
@@ -1786,6 +1799,7 @@ class _FullscreenRouteCard extends StatelessWidget {
   });
 
   final DriverJobView job;
+  final bool previewOnly;
   final double? routeDistanceMeters;
   final double? routeDurationSeconds;
   final bool routeReady;
@@ -1841,7 +1855,7 @@ class _FullscreenRouteCard extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(child: Text(
                 routeReady
-                    ? '${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
+                    ? '${previewOnly ? 'Pratinjau merchant → pelanggan · ' : ''}${_routeDistanceLabel(routeDistanceMeters)} · ${_routeDurationLabel(routeDurationSeconds)}'
                     : 'Jarak dan waktu tersedia saat rute jalan berhasil dimuat',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
               )),
@@ -2747,7 +2761,8 @@ class _MapSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Expanded(child: Text(
-                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Menunggu GPS valid',
+                  simulatedGps ? 'Lokasi simulator · tidak dikirim ke server' :
+                  gpsReady ? 'GPS aktif · posisi mengikuti pergerakan' : 'Lokasi perangkat belum tersedia',
                   style: const TextStyle(color: Colors.black54, fontSize: 12),
                 )),
               ],
