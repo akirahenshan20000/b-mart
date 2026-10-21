@@ -202,9 +202,27 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       }
     });
     _loadJobs();
+    unawaited(_restoreAvailability());
     _jobPoller = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted && _online) _loadJobs(silent: true);
     });
+  }
+
+  Future<void> _restoreAvailability() async {
+    try {
+      final payload = await ref.read(apiClientProvider).get('/driver/profile');
+      final profile = payload['data'];
+      final status = profile is Map ? (profile['status'] ?? '').toString().toLowerCase() : '';
+      if (!['available', 'assigned', 'delivering'].contains(status)) return;
+      await _guard.start();
+      if (mounted) setState(() => _online = true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _online = false;
+        _error = 'Status dan GPS driver belum tersambung. Periksa izin lokasi, lalu aktifkan Online kembali.';
+      });
+    }
   }
 
   Future<void> _loadJobs({bool silent = false}) async {
@@ -340,22 +358,21 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   Future<void> _setOnline(bool value) async {
     if (!value) {
-      // Stop device GPS immediately, then ask the backend to clear server availability.
-      await _guard.stop();
-      if (mounted) setState(() => _online = false);
       try {
+        // Keep tracking active if the server rejects going offline during a job.
         await ref.read(apiClientProvider).post('/driver/status', {'status': 'offline'});
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Anda offline. Status server sudah diperbarui.')),
-          );
-        }
-      } catch (error) {
+        await _guard.stop();
+        if (!mounted) return;
+        setState(() => _online = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Anda offline. Status server sudah diperbarui.')),
+        );
+      } catch (_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Color(0xFF8A001D),
-            content: Text('GPS perangkat dihentikan, tetapi status server belum terkonfirmasi. Periksa koneksi dan coba lagi.'),
+            content: Text('Tidak dapat offline saat tugas aktif atau server belum tersambung. GPS tetap berjalan.'),
           ),
         );
       }
