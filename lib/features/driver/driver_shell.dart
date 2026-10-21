@@ -198,7 +198,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     _locationSubscription = _guard.stream.listen((snapshot) {
       if (!mounted) return;
       setState(() => _snapshot = snapshot);
-      if (snapshot.mocked && _online) {
+      if (snapshot.mocked && _online && !kDebugMode) {
         _setOfflineForMock();
       }
     });
@@ -1255,10 +1255,18 @@ class _DriverMapPageState extends State<DriverMapPage> {
   DateTime? _lastRouteRequestAt;
   int _routeRequestGeneration = 0;
 
+  bool get _hasUsableGps => widget.snapshot != null &&
+      (!widget.snapshot!.mocked || kDebugMode);
+
+  bool get _previewOnly => !_hasUsableGps &&
+      widget.job?.pickup != null && widget.job?.dropoff != null;
+
+  LatLng? get _routeDestination => _previewOnly ? widget.job?.dropoff : _activeDestination;
+
   LatLng? get _driverPoint {
     final snapshot = widget.snapshot;
     final position = snapshot?.position;
-    if (position != null && snapshot != null && !snapshot.mocked) {
+    if (position != null && _hasUsableGps) {
       return LatLng(position.latitude, position.longitude);
     }
     // Job coordinates are server-sourced. If neither GPS nor order coordinates
@@ -1293,8 +1301,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
   @override
   void didUpdateWidget(covariant DriverMapPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldTarget = _destinationFor(oldWidget.job);
-    final newTarget = _activeDestination;
+    final oldTarget = _destinationFor(oldWidget.job, oldWidget.snapshot);
+    final newTarget = _routeDestination;
     if (_driverPoint == null) {
       _mapReady = false;
       _routePoints = const [];
@@ -1311,7 +1319,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
     final oldPosition = oldWidget.snapshot?.position;
     final newPosition = widget.snapshot?.position;
-    if (_mapReady && newPosition != null && !newPosition.isMocked) {
+    if (_mapReady && newPosition != null && (!newPosition.isMocked || kDebugMode)) {
       final changed = oldPosition == null ||
           _distanceMeters(
             LatLng(oldPosition.latitude, oldPosition.longitude),
@@ -1326,8 +1334,10 @@ class _DriverMapPageState extends State<DriverMapPage> {
     }
   }
 
-  LatLng? _destinationFor(DriverJobView? job) {
+  LatLng? _destinationFor(DriverJobView? job, LocationSnapshot? snapshot) {
     if (job == null || job.isCompleted) return null;
+    if ((snapshot == null || (snapshot.mocked && !kDebugMode)) &&
+        job.pickup != null && job.dropoff != null) return job.dropoff;
     switch (driverNavigationLegForStatus(job.status)) {
       case 'pickup':
         return job.pickup;
@@ -1353,22 +1363,19 @@ class _DriverMapPageState extends State<DriverMapPage> {
   Future<void> _maybeLoadRoute({bool force = false}) async {
     if (!_mapReady) return;
 
-    final snapshot = widget.snapshot;
-    final position = snapshot?.position;
-    if (position == null || snapshot!.mocked) {
-      if (mounted) {
-        setState(() {
-          _routeLoading = false;
-          _routeError = _routePoints.isEmpty
-              ? 'Aktifkan GPS untuk menghitung rute dari posisi Anda.'
-              : 'GPS tidak valid; rute terakhir masih ditampilkan.';
-        });
-      }
+    final position = _hasUsableGps ? widget.snapshot?.position : null;
+    final origin = position == null
+        ? widget.job?.pickup
+        : LatLng(position.latitude, position.longitude);
+    final destination = position == null ? widget.job?.dropoff : _activeDestination;
+    if (origin == null) {
+      if (mounted) setState(() {
+        _routeLoading = false;
+        _routeError = 'Aktifkan lokasi perangkat untuk melihat rute dari posisi Anda.';
+      });
       return;
     }
 
-    final origin = LatLng(position.latitude, position.longitude);
-    final destination = _activeDestination;
     if (destination == null) {
       if (mounted) {
         final status = widget.job?.status.toLowerCase() ?? '';
@@ -1489,9 +1496,9 @@ class _DriverMapPageState extends State<DriverMapPage> {
 
   void _centerOnDriver() {
     final snapshot = widget.snapshot;
-    if (snapshot == null || snapshot.mocked) {
+    if (!_hasUsableGps) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS valid belum tersedia. Aktifkan status Online terlebih dahulu.')),
+        const SnackBar(content: Text('Lokasi perangkat belum tersedia. Aktifkan GPS, lalu coba lagi.')),
       );
       return;
     }
@@ -1509,7 +1516,8 @@ class _DriverMapPageState extends State<DriverMapPage> {
   Widget build(BuildContext context) {
     final destination = _activeDestination;
     final snapshot = widget.snapshot;
-    final hasValidGps = snapshot != null && !snapshot.mocked;
+    final hasValidGps = _hasUsableGps;
+    final simulatedGps = snapshot?.mocked == true && kDebugMode;
     final initialCenter = _driverPoint;
     if (initialCenter == null) _mapReady = false;
 
@@ -1657,7 +1665,7 @@ class _DriverMapPageState extends State<DriverMapPage> {
                 else
                   _MapChip(
                     icon: hasValidGps ? Icons.my_location_rounded : Icons.location_searching_rounded,
-                    label: widget.job == null ? 'Peta pengantaran' : 'Menuju $_destinationLabel',
+                    label: _previewOnly ? 'Pratinjau rute order' : widget.job == null ? 'Peta pengantaran' : 'Menuju $_destinationLabel',
                   ),
                 const Spacer(),
                 _MapActionButton(
@@ -2667,6 +2675,8 @@ class _MapSheet extends StatelessWidget {
   const _MapSheet({
     required this.job,
     required this.gpsReady,
+    required this.simulatedGps,
+    required this.previewOnly,
     required this.routeLoading,
     required this.routeError,
     required this.routeDistanceMeters,
@@ -2678,6 +2688,8 @@ class _MapSheet extends StatelessWidget {
 
   final DriverJobView? job;
   final bool gpsReady;
+  final bool simulatedGps;
+  final bool previewOnly;
   final bool routeLoading;
   final String? routeError;
   final double? routeDistanceMeters;
