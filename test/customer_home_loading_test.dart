@@ -77,6 +77,10 @@ void main() {
   testWidgets(
     'CMS banners have a bounded viewport inside the member home list',
     (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final api = _SlowOptionalApi();
       await tester.pumpWidget(
         ProviderScope(
@@ -88,8 +92,8 @@ void main() {
         'ok': true,
         'data': {
           'hero_slides': [
-            {'title': 'Produk lokal', 'image_path': ''},
-            {'title': 'UMKM Probolinggo', 'image_path': ''},
+            {'title': 'Produk lokal', 'image_path': '', 'media_width': 1600, 'media_height': 710},
+            {'title': 'UMKM Probolinggo', 'image_path': '', 'media_width': 1600, 'media_height': 710},
           ],
         },
       });
@@ -97,7 +101,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull);
       expect(find.byType(PageView), findsOneWidget);
-      expect(tester.getSize(find.byType(PageView)).height, 190);
+      expect(tester.getSize(find.byType(PageView)).height, closeTo(160.64, 1));
     },
   );
 
