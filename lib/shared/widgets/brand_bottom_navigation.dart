@@ -29,7 +29,7 @@ class BrandBottomNavigation extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 76,
+          height: 86,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: List.generate(items.length, (index) {
@@ -46,7 +46,7 @@ class BrandBottomNavigation extends StatelessWidget {
                     onTap: () => onSelected(index),
                     borderRadius: BorderRadius.circular(16),
                     child: SizedBox(
-                      height: primary ? 76 : 62,
+                      height: primary ? 82 : 68,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -92,7 +92,7 @@ class BrandBottomNavigation extends StatelessWidget {
                               fontWeight: active || primary ? FontWeight.w800 : FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 7),
                         ],
                       ),
                     ),
