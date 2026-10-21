@@ -64,6 +64,19 @@ class LocationGuard {
         _controller.addError(error, stack);
       },
     );
+
+    // Seed the map immediately; some devices wait for movement before the stream emits.
+    try {
+      final first = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
+      await _handlePosition(first);
+    } catch (_) {
+      // The continuous stream remains active and may provide a later fix.
+    }
   }
 
   Future<void> _handlePosition(Position position) async {

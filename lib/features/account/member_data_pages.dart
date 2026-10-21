@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 
 const _areas = <String, List<String>>{
   'Kademangan': ['Kademangan', 'Ketapang', 'Pilang', 'Pohsangit Kidul', 'Triwung Kidul', 'Triwung Lor'],
@@ -44,7 +45,7 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
     );
     if (!mounted) return;
     if (saved == true) {
-      setState(() => _future = _load());
+      setState(() { _future = _load(); });
     }
   }
 
@@ -65,11 +66,11 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
     if (confirmed != true || !mounted) return;
     try {
       await ref.read(apiClientProvider).post('/addresses/delete/$id', <String, dynamic>{});
-      if (mounted) setState(() => _future = _load());
-    } catch (_) {
+      if (mounted) setState(() { _future = _load(); });
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Alamat gagal dihapus. Coba lagi.')),
+          SnackBar(content: Text(error is ApiException ? apiErrorMessage(error) : 'Alamat gagal dihapus. Coba lagi.')),
         );
       }
     }
@@ -95,7 +96,7 @@ class _MemberAddressBookPageState extends ConsumerState<MemberAddressBookPage> {
         if (snapshot.hasError) {
           return _RetryPanel(
             message: 'Alamat belum dapat dimuat dari server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final addresses = snapshot.data ?? const [];
@@ -358,7 +359,7 @@ class _BankAccountsPageState extends ConsumerState<BankAccountsPage> {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(builder: (_) => BankAccountEditorPage(initial: account)),
     );
-    if (mounted && saved == true) setState(() => _future = _load());
+    if (mounted && saved == true) setState(() { _future = _load(); });
   }
 
   Future<void> _delete(Map<String, dynamic> account) async {
@@ -378,7 +379,7 @@ class _BankAccountsPageState extends ConsumerState<BankAccountsPage> {
     if (confirmed != true || !mounted) return;
     try {
       await ref.read(apiClientProvider).post('/banks/delete/$id', <String, dynamic>{});
-      if (mounted) setState(() => _future = _load());
+      if (mounted) setState(() { _future = _load(); });
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rekening gagal dihapus.')));
     }
@@ -402,7 +403,7 @@ class _BankAccountsPageState extends ConsumerState<BankAccountsPage> {
         if (snapshot.hasError) {
           return _RetryPanel(
             message: 'Rekening belum dapat dimuat dari server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final accounts = snapshot.data ?? const [];

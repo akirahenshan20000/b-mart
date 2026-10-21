@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -160,12 +161,14 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xFF8D001D),
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         toolbarHeight: 64,
         elevation: 0,
-        flexibleSpace: const DecoratedBox(
+        scrolledUnderElevation: 0,
+        flexibleSpace: const SizedBox.expand(child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -173,7 +176,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
               colors: [Color(0xFF19070C), Color(0xFF8D001D), Color(0xFFE60025)],
             ),
           ),
-        ),
+        )),
         title: Row(
           children: [
             Image.asset(
@@ -1047,7 +1050,7 @@ class _CustomerProductDetailPageState extends State<_CustomerProductDetailPage> 
                       icon: _adding
                           ? const SizedBox.square(dimension: 17, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.add_shopping_cart_rounded),
-                      label: Text(_adding ? 'Menambahkan…' : _outOfStock ? 'Stok habis' : 'Tambah ke Keranjang'),
+                      label: Text(_adding ? 'Menambahkan…' : _outOfStock ? 'Stok habis' : 'Tambah'),
                     ),
                   ),
                 ],
@@ -1087,13 +1090,13 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _load());
+    setState(() { _future = _load(); });
     await _future;
   }
 
   Future<void> _updateQty(Map<String, dynamic> item, int qty) async {
-    final id = item['id'] ?? item['line_key'];
-    if (id == null) return;
+    final id = int.tryParse((item['id'] ?? item['line_key'])?.toString() ?? '');
+    if (id == null || id < 1) return;
     try {
       await ref.read(apiClientProvider).post('/cart/update', {'item_id': id, 'qty': qty});
       await _refresh();
@@ -1103,13 +1106,13 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
   }
 
   Future<void> _remove(Map<String, dynamic> item) async {
-    final id = item['id'] ?? item['line_key'];
-    if (id == null) return;
+    final id = int.tryParse((item['id'] ?? item['line_key'])?.toString() ?? '');
+    if (id == null || id < 1) return;
     try {
       await ref.read(apiClientProvider).post('/cart/remove', {'item_id': id});
       await _refresh();
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk gagal dihapus dari keranjang.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error is ApiException ? apiErrorMessage(error) : 'Produk gagal dihapus dari keranjang.')));
     }
   }
 
@@ -1123,7 +1126,7 @@ class _CustomerCartState extends ConsumerState<CustomerCart> {
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Keranjang belum dapat dimuat. Pastikan API cart sudah dipasang di server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final data = snapshot.data ?? const <String, dynamic>{};
@@ -1460,7 +1463,7 @@ class _CustomerCategoriesState extends ConsumerState<CustomerCategories> {
     future: _future,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return _ErrorPanel(message: 'Kategori belum dapat dimuat.', onRetry: () => setState(() => _future = _load()));
+      if (snapshot.hasError) return _ErrorPanel(message: 'Kategori belum dapat dimuat.', onRetry: () => setState(() { _future = _load(); }));
       final items = snapshot.data ?? const [];
       if (items.isEmpty) return const Center(child: Text('Belum ada kategori aktif.'));
       return ListView(
@@ -1518,7 +1521,7 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
     future: _future,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return _ErrorPanel(message: 'Pesanan belum dapat dimuat.', onRetry: () => setState(() => _future = _load()));
+      if (snapshot.hasError) return _ErrorPanel(message: 'Pesanan belum dapat dimuat.', onRetry: () => setState(() { _future = _load(); }));
       final items = snapshot.data ?? const [];
       if (items.isEmpty) {
         return ListView(physics: const AlwaysScrollableScrollPhysics(), children: const [
@@ -1533,14 +1536,103 @@ class _CustomerOrdersState extends ConsumerState<CustomerOrders> {
         itemBuilder: (context, index) {
           final order = Map<String, dynamic>.from(items[index] as Map);
           return Card(child: ListTile(
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => _CustomerOrderDetailPage(orderId: int.tryParse(order['id']?.toString() ?? '') ?? 0),
+            )),
             leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E8), child: Icon(Icons.receipt_long, color: Color(0xFFD20A2E))),
             title: Text('${order['code'] ?? order['order_code'] ?? 'Pesanan'}', style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text(readableApiValue(order['flow_state'] ?? order['status'])),
-            trailing: Text(formatRupiah(order['total']), style: const TextStyle(color: Color(0xFFD20A2E), fontWeight: FontWeight.w900)),
+            trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFFD20A2E)),
           ));
         },
       );
     },
+  );
+}
+
+class _CustomerOrderDetailPage extends ConsumerWidget {
+  const _CustomerOrderDetailPage({required this.orderId});
+  final int orderId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
+    appBar: AppBar(title: const Text('Detail pesanan')),
+    body: FutureBuilder<dynamic>(
+      future: ref.read(apiClientProvider).get('/orders/$orderId'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return const Center(child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Detail pesanan belum dapat dimuat. Coba buka lagi dari daftar pesanan.'),
+          ));
+        }
+        final envelope = snapshot.data;
+        if (envelope is! Map || envelope['data'] is! Map) {
+          return const Center(child: Text('Data pesanan tidak tersedia.'));
+        }
+        final order = Map<String, dynamic>.from(envelope['data'] as Map);
+        final lines = List<dynamic>.from(order['items'] as List? ?? const []);
+        final payment = order['payment'] is Map
+            ? Map<String, dynamic>.from(order['payment'] as Map)
+            : <String, dynamic>{};
+        final address = order['address_snapshot'];
+        Map<String, dynamic> shipping = {};
+        if (address is Map) shipping = Map<String, dynamic>.from(address);
+        if (address is String && address.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(address);
+            if (decoded is Map) shipping = Map<String, dynamic>.from(decoded);
+          } catch (_) {}
+        }
+        Widget row(String label, dynamic value, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(children: [
+            Expanded(child: Text(label, style: const TextStyle(color: Colors.black54))),
+            Text(strong ? formatRupiah(value) : readableApiValue(value),
+              style: TextStyle(fontWeight: strong ? FontWeight.w900 : FontWeight.w600)),
+          ]),
+        );
+        return ListView(padding: const EdgeInsets.all(16), children: [
+          Text(readableApiValue(order['code']), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          Text(readableApiValue(order['flow_state'] ?? order['status'])),
+          const SizedBox(height: 16),
+          const Text('Produk dipesan', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          ...lines.map((raw) {
+            final line = Map<String, dynamic>.from(raw as Map);
+            return Card(child: ListTile(
+              title: Text(readableApiValue(line['product_name_snapshot'], fallback: 'Produk')),
+              subtitle: Text('${line['qty'] ?? 0} × ${formatRupiah(line['unit_price'])}'),
+              trailing: Text(formatRupiah(line['line_total']), style: const TextStyle(fontWeight: FontWeight.w800)),
+            ));
+          }),
+          const SizedBox(height: 12),
+          row('Subtotal', order['subtotal'], strong: true),
+          row('Ongkir', order['shipping_total'], strong: true),
+          if ((num.tryParse(order['discount_total']?.toString() ?? '') ?? 0) > 0)
+            row('Diskon', order['discount_total'], strong: true),
+          const Divider(),
+          row('Total pembayaran', order['total'], strong: true),
+          const SizedBox(height: 14),
+          const Text('Pengiriman dan pembayaran', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          row('Pengiriman', order['shipping_method']),
+          row('Metode bayar', order['payment_method']),
+          row('Status bayar', payment['status'] ?? '-'),
+          if (shipping.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Alamat pengiriman', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            Text(readableApiValue(shipping['recipient_name'])),
+            Text(readableApiValue(shipping['address_line'])),
+            Text([shipping['village'], shipping['district'], shipping['city']]
+                .where((value) => value != null && value.toString().isNotEmpty).join(', ')),
+          ],
+        ]);
+      },
+    ),
   );
 }
 
@@ -1688,7 +1780,7 @@ class _CustomerAddressesPageState extends ConsumerState<CustomerAddressesPage> {
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Alamat belum dapat dimuat. Pastikan endpoint API /addresses sudah tersedia di server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final addresses = snapshot.data ?? const [];
@@ -1767,7 +1859,7 @@ class _CustomerBankAccountsPageState extends ConsumerState<CustomerBankAccountsP
         if (snapshot.hasError) {
           return _ErrorPanel(
             message: 'Rekening belum dapat dimuat. Endpoint API /banks belum terverifikasi pada server.',
-            onRetry: () => setState(() => _future = _load()),
+            onRetry: () => setState(() { _future = _load(); }),
           );
         }
         final accounts = snapshot.data ?? const [];

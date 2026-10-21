@@ -790,10 +790,10 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     switch (_nextStatus) {
       case 'accepted': return 'Terima Order';
       case 'picking_up': return 'Mulai menuju merchant';
-      case 'picked_up': return 'Konfirmasi pesanan diambil';
+      case 'picked_up': return 'Foto bukti barang diambil';
       case 'delivering': return 'Mulai pengantaran';
-      case 'arrived': return 'Ambil foto bukti & tiba di tujuan';
-      case 'delivered': return 'Konfirmasi serah terima';
+      case 'arrived': return 'Tiba di tujuan';
+      case 'delivered': return 'Foto bukti barang diterima';
       case 'completed': return 'Selesaikan Order';
       default: return 'Order selesai';
     }
@@ -854,7 +854,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     if (requestedStatus == null || jobId == null || jobId < 1) return;
 
     XFile? proof;
-    if (requestedStatus == 'arrived') {
+    if (requestedStatus == 'picked_up' || requestedStatus == 'delivered') {
       try {
         final source = await _chooseProofSource();
         if (source == null || !mounted) return;
