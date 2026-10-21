@@ -74,6 +74,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
     expect(api.removed, isTrue);
+    // Ignore: diagnostic output while validating asynchronous cart refresh.
+    // ignore: avoid_print
+    print(tester.widgetList<Text>(find.byType(Text)).map((widget) => widget.data).toList());
     expect(find.text('Keranjang masih kosong'), findsOneWidget);
   });
 }
