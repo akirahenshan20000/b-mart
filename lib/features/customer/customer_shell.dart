@@ -138,17 +138,19 @@ class CustomerShell extends ConsumerStatefulWidget {
 class _CustomerShellState extends ConsumerState<CustomerShell> {
   int _index = 0;
   int _cartRevision = 0;
+  int _homeRevision = 0;
   String? _selectedCategory;
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}'), initialCategory: _selectedCategory, onOpenCart: () => setState(() {
+      CustomerHome(key: ValueKey('home-${_selectedCategory ?? 'all'}-$_homeRevision'), initialCategory: _selectedCategory, onOpenCart: () => setState(() {
         _cartRevision++;
         _index = 2;
       })),
       CustomerCategories(onSelect: (category) => setState(() {
         _selectedCategory = category;
+        _homeRevision++;
         _index = 0;
       })),
       CustomerCart(
@@ -203,6 +205,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell> {
         selectedIndex: _index,
         onSelected: (value) => setState(() {
           if (value == 2) _cartRevision++;
+          if (value == 0 && _index != 0) _homeRevision++;
           _index = value;
         }),
         items: const [
@@ -387,7 +390,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   void _reload() {
     _searchDebounce?.cancel();
-    setState(() => _future = _loadProducts());
+    setState(() { _future = _loadProducts(); });
   }
 
   void _scheduleSearch(String value) {
@@ -400,7 +403,7 @@ class _CustomerHomeState extends ConsumerState<CustomerHome> {
 
   Future<void> _refresh() async {
     final next = _loadProducts();
-    setState(() => _future = next);
+    setState(() { _future = next; });
     _loadOptionalContent();
     try {
       await next;
