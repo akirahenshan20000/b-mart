@@ -2,6 +2,16 @@ import 'package:bersolek_mart_mobile/features/driver/driver_shell.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('Driver photo capture matches backend proof requirements', () {
+    test('pickup and arrival require camera, later delivery does not', () {
+      expect(driverStatusRequiresPhoto('picked_up'), isTrue);
+      expect(driverStatusRequiresPhoto('arrived'), isTrue);
+      expect(driverStatusRequiresPhoto('delivered'), isFalse);
+      expect(driverStatusRequiresPhoto('completed'), isFalse);
+      expect(driverStatusRequiresPhoto('picking_up'), isFalse);
+    });
+  });
+
   group('Driver road-navigation leg follows the existing delivery workflow', () {
     test('does not route before assignment or after arrival/delivery completion', () {
       expect(driverNavigationLegForStatus('available'), isNull);
