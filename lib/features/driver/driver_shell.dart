@@ -63,6 +63,8 @@ String readableDriverValue(dynamic value, {String fallback = '-'}) {
 
 /// Road leg that matches the existing PWA/PHP delivery state machine.
 /// null means the driver should not be navigating to a road destination at this stage.
+bool driverStatusRequiresPhoto(String status) => const {'picked_up', 'arrived'}.contains(status.trim().toLowerCase());
+
 String? driverNavigationLegForStatus(String status) {
   switch (status.trim().toLowerCase()) {
     case 'assigned':
@@ -792,8 +794,8 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
       case 'picking_up': return 'Mulai menuju merchant';
       case 'picked_up': return 'Foto bukti barang diambil';
       case 'delivering': return 'Mulai pengantaran';
-      case 'arrived': return 'Tiba di tujuan';
-      case 'delivered': return 'Foto bukti barang diterima';
+      case 'arrived': return 'Foto bukti serah terima';
+      case 'delivered': return 'Konfirmasi barang diterima';
       case 'completed': return 'Selesaikan Order';
       default: return 'Order selesai';
     }
@@ -825,7 +827,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Foto bukti pengantaran',
+              Text(_nextStatus == 'picked_up' ? 'Foto bukti pickup merchant' : 'Foto bukti serah terima',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
               const Text('Foto dikirim ke backend dan menjadi bagian dari catatan pengantaran.',
@@ -854,7 +856,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
     if (requestedStatus == null || jobId == null || jobId < 1) return;
 
     XFile? proof;
-    if (requestedStatus == 'picked_up' || requestedStatus == 'delivered') {
+    if (driverStatusRequiresPhoto(requestedStatus)) {
       try {
         final source = await _chooseProofSource();
         if (source == null || !mounted) return;
@@ -1063,7 +1065,7 @@ class _DriverOrderDetailPageState extends ConsumerState<DriverOrderDetailPage> {
                       onPressed: _busy || nextStatus == null ? null : _advanceStatus,
                       icon: _busy
                           ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : Icon(const ['arrived', 'delivered', 'completed'].contains(nextStatus)
+                          : Icon(nextStatus != null && driverStatusRequiresPhoto(nextStatus)
                               ? Icons.photo_camera_outlined
                               : Icons.check_circle_outline_rounded),
                       label: Text(_busy ? 'Mengirim ke server…' : _nextActionLabel),
